@@ -19,7 +19,7 @@ This validates both product directions at once:
 4. In another Terminal run ./Scripts/run-e2e-agent.sh.
 5. Answer the interviewer naturally in Mandarin.
 
-The E2E agent reuses the API key stored by SpeakAcross in macOS Keychain. You can alternatively provide OPENAI_API_KEY in the environment.
+The E2E agent resolves the API key from the shell environment first, then `.env`, then the SpeakAcross macOS Keychain entry.
 
 The agent behaves like an English-speaking technical interviewer. It starts the conversation, understands Mandarin or mixed Chinese-English answers, speaks only English, and asks follow-up questions based on your answers.
 

@@ -1,5 +1,6 @@
 import Foundation
 import Security
+import SpeakAcrossCore
 
 enum KeychainStoreError: LocalizedError {
     case unexpectedStatus(OSStatus)
@@ -38,6 +39,13 @@ enum OpenAIKeyStore {
 
         guard let data = item as? Data else { return nil }
         return String(data: data, encoding: .utf8)
+    }
+
+    static func resolve() throws -> String? {
+        if let developmentKey = DotEnv.value(for: "OPENAI_API_KEY") {
+            return developmentKey
+        }
+        return try load()
     }
 
     static func save(_ key: String) throws {

@@ -15,7 +15,7 @@ struct SpeakAcrossApp: App {
 struct ContentView: View {
     @StateObject private var meeting = MeetingSessionController()
     @State private var apiKey = ""
-    @State private var hasStoredKey = false
+    @State private var hasAvailableKey = false
     @State private var keyError: String?
 
     var body: some View {
@@ -53,18 +53,18 @@ struct ContentView: View {
 
             HStack(spacing: 10) {
                 SecureField(
-                    hasStoredKey ? "OpenAI API key stored in Keychain" : "OpenAI API key",
+                    hasAvailableKey ? "OpenAI API key available (.env / env / Keychain)" : "OpenAI API key",
                     text: $apiKey
                 )
                 .textFieldStyle(.roundedBorder)
                 .disabled(meeting.state == .running)
 
-                Button(hasStoredKey && apiKey.isEmpty ? "Replace Key" : "Save Key") {
+                Button(hasAvailableKey && apiKey.isEmpty ? "Replace Key" : "Save Key") {
                     saveKey()
                 }
                 .disabled(apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
-                if hasStoredKey {
+                if (try? OpenAIKeyStore.load()) != nil {
                     Button("Remove", role: .destructive) {
                         removeKey()
                     }
@@ -81,12 +81,12 @@ struct ContentView: View {
                 } else {
                     Button("Start Meeting") {
                         Task {
-                            let key = apiKey.isEmpty ? (try? OpenAIKeyStore.load()) ?? "" : apiKey
+                            let key = apiKey.isEmpty ? (try? OpenAIKeyStore.resolve()) ?? "" : apiKey
                             await meeting.start(apiKey: key)
                         }
                     }
                     .keyboardShortcut(.return, modifiers: [.command])
-                    .disabled(meeting.state.isBusy || (!hasStoredKey && apiKey.isEmpty))
+                    .disabled(meeting.state.isBusy || (!hasAvailableKey && apiKey.isEmpty))
                 }
 
                 Button("Clear") {
@@ -143,7 +143,7 @@ struct ContentView: View {
 
     private func loadStoredKey() {
         do {
-            hasStoredKey = try OpenAIKeyStore.load() != nil
+            hasAvailableKey = try OpenAIKeyStore.resolve() != nil
             keyError = nil
         } catch {
             keyError = error.localizedDescription
@@ -154,7 +154,7 @@ struct ContentView: View {
         do {
             try OpenAIKeyStore.save(apiKey)
             apiKey = ""
-            hasStoredKey = true
+            hasAvailableKey = true
             keyError = nil
         } catch {
             keyError = error.localizedDescription
@@ -165,7 +165,7 @@ struct ContentView: View {
         do {
             try OpenAIKeyStore.remove()
             apiKey = ""
-            hasStoredKey = false
+            hasAvailableKey = try OpenAIKeyStore.resolve() != nil
             keyError = nil
         } catch {
             keyError = error.localizedDescription

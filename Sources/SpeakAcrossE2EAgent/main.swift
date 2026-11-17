@@ -1,6 +1,7 @@
 import AVFoundation
 import Foundation
 import Security
+import SpeakAcrossCore
 
 private enum E2EError: LocalizedError {
     case missingAPIKey
@@ -24,10 +25,8 @@ private enum E2EError: LocalizedError {
 
 private enum APIKeyLoader {
     static func load() throws -> String {
-        if let env = ProcessInfo.processInfo.environment["OPENAI_API_KEY"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines),
-           !env.isEmpty {
-            return env
+        if let developmentKey = DotEnv.value(for: "OPENAI_API_KEY") {
+            return developmentKey
         }
 
         let query: [String: Any] = [
@@ -164,19 +163,21 @@ private final class EnglishInterviewAgent: NSObject, URLSessionWebSocketDelegate
     var onError: (@Sendable (Error) -> Void)?
 
     private let apiKey: String
+    private let model: String
     private var session: URLSession?
     private var socket: URLSessionWebSocketTask?
     private let sendQueue = DispatchQueue(label: "app.speakacross.e2e-agent-send")
     private var pendingAudio = Data()
     private let chunkBytes = 9_600
 
-    init(apiKey: String) {
+    init(apiKey: String, model: String) {
         self.apiKey = apiKey
+        self.model = model
         super.init()
     }
 
     func connect() throws {
-        guard let url = URL(string: "wss://api.openai.com/v1/realtime?model=gpt-realtime-2.1") else {
+        guard let url = URL(string: "wss://api.openai.com/v1/realtime?model=\(model)") else {
             throw E2EError.invalidEndpoint
         }
         var request = URLRequest(url: url)
@@ -215,7 +216,7 @@ private final class EnglishInterviewAgent: NSObject, URLSessionWebSocketDelegate
             "type": "session.update",
             "session": [
                 "type": "realtime",
-                "model": "gpt-realtime-2.1",
+                "model": model,
                 "output_modalities": ["audio"],
                 "instructions": """
                 You are the English-speaking remote participant in an end-to-end integration test for SpeakAcross.
@@ -343,7 +344,8 @@ private struct SpeakAcrossE2EAgent {
     static func main() async {
         do {
             let apiKey = try APIKeyLoader.load()
-            let agent = EnglishInterviewAgent(apiKey: apiKey)
+            let agentModel = DotEnv.value(for: "SPEAKACROSS_AGENT_MODEL") ?? "gpt-realtime-2.1"
+            let agent = EnglishInterviewAgent(apiKey: apiKey, model: agentModel)
             let audio = E2EAudioIO { [weak agent] pcm in
                 agent?.appendInputPCM(pcm)
             }

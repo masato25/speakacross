@@ -49,15 +49,20 @@ final class MeetingSessionController: ObservableObject {
         state = .starting
         resetCaptions()
 
+        let translationModel = DotEnv.value(for: "SPEAKACROSS_TRANSLATION_MODEL")
+            ?? "gpt-realtime-translate"
+
         let remote = OpenAIRealtimeTranslationSession(
             apiKey: key,
             sourceLanguage: "en",
-            targetLanguage: "zh-TW"
+            targetLanguage: "zh-TW",
+            model: translationModel
         )
         let local = OpenAIRealtimeTranslationSession(
             apiKey: key,
             sourceLanguage: "zh",
-            targetLanguage: "en"
+            targetLanguage: "en",
+            model: translationModel
         )
 
         wire(remote, speaker: .remote)

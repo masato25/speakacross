@@ -4,3 +4,6 @@
 .swiftpm/
 SpeakAcross.app/
 Nativox.app/
+.env
+.env.local
+.env.*.local

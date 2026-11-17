@@ -12,7 +12,7 @@ let package = Package(
     targets: [
         .target(name: "SpeakAcrossCore"),
         .executableTarget(name: "SpeakAcrossApp", dependencies: ["SpeakAcrossCore"]),
-        .executableTarget(name: "SpeakAcrossE2EAgent"),
+        .executableTarget(name: "SpeakAcrossE2EAgent", dependencies: ["SpeakAcrossCore"]),
         .testTarget(name: "SpeakAcrossCoreTests", dependencies: ["SpeakAcrossCore"])
     ]
 )

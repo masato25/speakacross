@@ -103,6 +103,30 @@ SpeakAcross/
 
 ## Development
 
+For local development, copy the example environment file:
+
+```sh
+cp .env.example .env
+```
+
+Then set `OPENAI_API_KEY` in `.env`. The local `.env` file is ignored by Git.
+
+Development configuration precedence is:
+
+```text
+shell environment -> .env -> macOS Keychain
+```
+
+Supported development variables:
+
+```text
+OPENAI_API_KEY=
+SPEAKACROSS_TRANSLATION_MODEL=gpt-realtime-translate
+SPEAKACROSS_AGENT_MODEL=gpt-realtime-2.1
+```
+
+You can also point to a different file with `SPEAKACROSS_ENV_FILE=/path/to/file`.
+
 ```sh
 swift build
 swift test
