@@ -8,3 +8,8 @@ import Testing
 @Test func traditionalChineseNormalizerPreservesEnglishTechnicalTerms() {
     #expect(TraditionalChineseText.normalize("RPC keeper health factor") == "RPC keeper health factor")
 }
+
+@Test func traditionalChineseScriptCheckUsesNormalization() {
+    #expect(TraditionalChineseText.isTraditionalScript("網關與服務商"))
+    #expect(!TraditionalChineseText.isTraditionalScript("网关与服务商"))
+}

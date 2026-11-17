@@ -53,7 +53,7 @@ public final class OpenAIRealtimeTranslationSession: NSObject, URLSessionWebSock
         apiKey: String,
         targetLanguage: String,
         model: String = "gpt-realtime-translate",
-        transcriptionModel: String = "gpt-realtime-whisper",
+        transcriptionModel: String = "gpt-live-transcribe",
         normalizeOriginalTraditionalChinese: Bool = false,
         normalizeTraditionalChinese: Bool = false
     ) {
@@ -112,11 +112,10 @@ public final class OpenAIRealtimeTranslationSession: NSObject, URLSessionWebSock
     }
 
     public func close() {
-        guard !closeRequested else { return }
-        closeRequested = true
-
         sendQueue.async { [weak self] in
             guard let self else { return }
+            guard !self.closeRequested else { return }
+            self.closeRequested = true
             if !self.pendingAudio.isEmpty {
                 self.sendAudioChunk(self.pendingAudio)
                 self.pendingAudio.removeAll(keepingCapacity: false)

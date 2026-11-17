@@ -6,4 +6,8 @@ public enum TraditionalChineseText {
     public static func normalize(_ text: String) -> String {
         text.applyingTransform(hansToHant, reverse: false) ?? text
     }
+
+    public static func isTraditionalScript(_ text: String) -> Bool {
+        normalize(text) == text
+    }
 }

@@ -310,6 +310,11 @@ private func writeReport(
 @main
 private struct SpeakAcrossFullE2E {
     static func main() async {
+        if CommandLine.arguments.contains("--golden") {
+            await GoldenE2ERunner.run()
+            return
+        }
+
         let startedAt = Date()
         let config = FullE2EConfig.load()
 

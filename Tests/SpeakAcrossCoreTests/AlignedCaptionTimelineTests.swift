@@ -50,6 +50,11 @@ import Testing
 
     // Realtime translation can lead source transcription for the next utterance.
     timeline.appendTranslation(.init(text: "第二句", elapsedMilliseconds: 5_000))
+
+    // Until source transcription establishes the next turn boundary, the leading
+    // translation is temporarily attached to the current turn.
+    #expect(timeline.history.isEmpty)
+
     timeline.appendOriginal(.init(text: "Second", elapsedMilliseconds: 5_200))
 
     #expect(timeline.history.count == 1)
@@ -57,4 +62,19 @@ import Testing
     #expect(timeline.history[0].translatedText == "第一句")
     #expect(timeline.current.originalText == "Second")
     #expect(timeline.current.translatedText == "第二句")
+}
+
+@Test func alignedTimelineDoesNotSplitWhenTranslationLeadsSourceWithinSameTurn() {
+    var timeline = AlignedCaptionTimeline(
+        speaker: .local,
+        sourceGapThresholdMilliseconds: 2_400
+    )
+
+    timeline.appendOriginal(.init(text: "這是一個", elapsedMilliseconds: 1_000))
+    timeline.appendTranslation(.init(text: "This is a", elapsedMilliseconds: 3_600))
+    timeline.appendOriginal(.init(text: "完整句子", elapsedMilliseconds: 3_200))
+
+    #expect(timeline.history.isEmpty)
+    #expect(timeline.current.originalText == "這是一個完整句子")
+    #expect(timeline.current.translatedText == "This is a")
 }

@@ -13,7 +13,14 @@ The first public version is BYOK (Bring Your Own Key) and uses the OpenAI API di
 - Show original text and translated text together.
 - Remote English -> original English + Traditional Chinese translation.
 - Local Chinese -> original Chinese + English translation.
-- Share the SpeakAcross subtitle window using the meeting app's normal screen-sharing feature.
+- Keep the user's listening view private and share a separate subtitle-only Share View through the meeting app's normal screen-sharing feature.
+
+## Translation modes
+
+SpeakAcross has two translation paths with different priorities:
+
+- **Accurate (default)** — turn-based Realtime interpretation. Uses automatic server VAD, `gpt-live-transcribe` for the original transcript, text-only Realtime interpretation, and a technical-term glossary. This mode is intended for interviews and technical meetings where meaning, conditions, numbers, and domain terminology matter more than token-by-token streaming.
+- **Fast** — continuous Realtime Translation streaming. Captions appear while the speaker is still talking and `elapsed_ms` alignment keeps late/leading translation deltas attached to the correct source turn. This mode favors lower time-to-first-caption over technical translation quality.
 
 ## OpenAI-first
 
@@ -122,7 +129,10 @@ Supported development variables:
 ```text
 OPENAI_API_KEY=
 SPEAKACROSS_TRANSLATION_MODEL=gpt-realtime-translate
+SPEAKACROSS_TRANSCRIPTION_MODEL=gpt-live-transcribe
 SPEAKACROSS_AGENT_MODEL=gpt-realtime-2.1
+SPEAKACROSS_ACCURATE_MODEL=gpt-realtime-2.1
+SPEAKACROSS_DEFAULT_MODE=accurate
 ```
 
 You can also point to a different file with `SPEAKACROSS_ENV_FILE=/path/to/file`.
@@ -154,9 +164,25 @@ For repeatable development regression, SpeakAcross also includes a fully autonom
 
 See [Docs/full-e2e.md](Docs/full-e2e.md).
 
+## Semantic golden-set E2E
+
+To check translation meaning rather than only transport and segmentation, run the fixed technical golden set:
+
+```sh
+./Scripts/run-golden-e2e.sh
+```
+
+For the production Accurate path, including automatic server VAD:
+
+```sh
+./Scripts/run-accurate-vad-e2e.sh
+```
+
+The golden tests cover technical terminology, numeric fidelity, source-ASR fidelity, Traditional Chinese output, and semantic correctness with a structured judge. See [Docs/golden-e2e.md](Docs/golden-e2e.md).
+
 ## Status
 
-Early-stage MVP.
+Alpha MVP. Both translation modes are covered by automated end-to-end regression; real microphone, ScreenCaptureKit, AirPods, and third-party meeting-app acceptance remain separate hardware tests.
 
 ## License
 

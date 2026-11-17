@@ -58,6 +58,8 @@ private struct MyView: View {
 
             LanguageRoute(source: "English", target: "繁體中文")
 
+            ModeBadge(mode: meeting.mode)
+
             StatusBadge(state: meeting.state)
         }
         .padding(.horizontal, 22)
@@ -105,6 +107,16 @@ private struct MyView: View {
     private var controls: some View {
         VStack(spacing: 12) {
             HStack(spacing: 10) {
+                Picker("Mode", selection: $meeting.mode) {
+                    ForEach(MeetingSessionController.TranslationMode.allCases) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 180)
+                .disabled(meeting.state == .running || meeting.state.isBusy)
+                .help(meeting.mode.detail)
+
                 if meeting.state == .running {
                     Button("Stop Meeting", role: .destructive) {
                         Task { await meeting.stop() }
@@ -144,6 +156,13 @@ private struct MyView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
+            }
+
+            HStack {
+                Text(meeting.mode.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
             }
 
             if showsConnection {
@@ -408,6 +427,23 @@ private struct LanguageRoute: View {
             Capsule()
                 .fill(Color.primary.opacity(0.05))
         )
+    }
+}
+
+private struct ModeBadge: View {
+    let mode: MeetingSessionController.TranslationMode
+
+    var body: some View {
+        Text(mode.label)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(
+                Capsule()
+                    .fill(Color.primary.opacity(0.05))
+            )
+            .help(mode.detail)
     }
 }
 
