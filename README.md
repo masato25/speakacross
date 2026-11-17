@@ -1,0 +1,129 @@
+# SpeakAcross
+
+**SpeakAcross** is an open-source bilingual meeting subtitle app for macOS, with iOS planned.
+
+> Speak naturally in your language. Let everyone in the meeting read the original and translated subtitles.
+
+The first public version is BYOK (Bring Your Own Key) and uses the OpenAI API directly from the app.
+
+## MVP
+
+- Capture remote meeting audio at the macOS system level.
+- Capture the local user's microphone.
+- Show original text and translated text together.
+- Remote English -> original English + Traditional Chinese translation.
+- Local Chinese -> original Chinese + English translation.
+- Share the SpeakAcross subtitle window using the meeting app's normal screen-sharing feature.
+
+## OpenAI-first
+
+The MVP intentionally uses one AI provider: OpenAI.
+
+```text
+System audio --\
+                -> SpeakAcross -> OpenAI Realtime API -> bilingual captions
+Microphone -----/
+```
+
+The goal is time-to-readable-translation, not archival transcription.
+
+## Bring Your Own Key
+
+Users provide their own OpenAI API key. The app should store it in Apple Keychain and never expose it in the screen-shared subtitle window, repository files, or UserDefaults.
+
+## Privacy defaults
+
+- no audio recording to disk
+- no persistent transcript history
+- no SpeakAcross account
+- no analytics requirement
+- no transcript backend
+- API key stays on device
+
+Audio or text sent to OpenAI is governed by the user's own OpenAI API account and applicable OpenAI policies.
+
+See [Docs/privacy.md](Docs/privacy.md).
+
+## Product principles
+
+- bilingual communication, not interview automation
+- original text and translation appear together
+- preserve names, numbers, technical terms, acronyms, and code-switching
+- never invent content that was not spoken
+- low latency over literary translation
+- partial captions may update; finalized captions should remain stable
+- meeting software remains untouched
+- no recording by default
+
+## Platforms
+
+macOS is the primary MVP platform because it can capture both microphone and system/meeting audio. iOS is planned, but feature parity is not assumed.
+
+## Repository layout
+
+```text
+SpeakAcross/
+├── Apps/
+│   ├── macOS/
+│   └── iOS/
+├── Packages/
+├── Sources/
+├── Tests/
+├── Docs/
+│   ├── architecture.md
+│   └── privacy.md
+├── CONTRIBUTING.md
+├── SECURITY.md
+├── LICENSE
+└── README.md
+```
+
+## Technical baseline
+
+- Swift 6
+- SwiftUI
+- macOS 14+
+- AVFoundation
+- ScreenCaptureKit
+- OpenAI Realtime API
+- URLSession / WebSocket
+- Apple Keychain
+
+## Non-goals for MVP
+
+- automatic interview answers
+- AI-generated talking points
+- voice cloning
+- TTS voice replacement
+- meeting recording
+- long-term transcript storage
+- account or billing system
+- multi-provider abstraction
+- Zoom / Teams / Meet plugins
+
+## Development
+
+```sh
+swift build
+swift test
+./Scripts/build-macos-app.sh
+open SpeakAcross.app
+```
+
+## Interactive E2E test
+
+SpeakAcross includes a developer-only English interviewer agent for exercising the real microphone and system-audio loop.
+
+Run ./Scripts/run-e2e-agent.sh while SpeakAcross is active.
+
+You speak Chinese. The agent listens through the microphone and responds only in spoken English through macOS system audio. Running SpeakAcross at the same time therefore validates both translation directions end to end.
+
+See Docs/e2e-testing.md.
+
+## Status
+
+Early-stage MVP.
+
+## License
+
+Apache License 2.0.
