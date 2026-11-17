@@ -3,6 +3,29 @@ import Foundation
 import Security
 import SpeakAcrossCore
 
+private enum E2ELogger {
+    static let url = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("speakacross-e2e-agent.log")
+
+    static func reset() {
+        try? "".write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    static func write(_ message: String) {
+        let line = message + "\n"
+        if let data = line.data(using: .utf8) {
+            if !FileManager.default.fileExists(atPath: url.path) {
+                FileManager.default.createFile(atPath: url.path, contents: data)
+            } else if let handle = try? FileHandle(forWritingTo: url) {
+                defer { try? handle.close() }
+                _ = try? handle.seekToEnd()
+                try? handle.write(contentsOf: data)
+            }
+        }
+        print(message)
+    }
+}
+
 private enum E2EError: LocalizedError {
     case missingAPIKey
     case microphoneDenied
@@ -106,12 +129,14 @@ private final class E2EAudioIO: @unchecked Sendable {
     private let encoder = PCM24kEncoder()
     private let onInputPCM: @Sendable (Data) -> Void
     private let playbackQueue = DispatchQueue(label: "app.speakacross.e2e-playback")
-    private let outputFormat = AVAudioFormat(
+    private let sourcePlaybackFormat = AVAudioFormat(
         commonFormat: .pcmFormatInt16,
         sampleRate: 24_000,
         channels: 1,
         interleaved: false
     )!
+    private var hardwarePlaybackFormat: AVAudioFormat?
+    private var playbackConverter: AVAudioConverter?
 
     init(onInputPCM: @escaping @Sendable (Data) -> Void) {
         self.onInputPCM = onInputPCM
@@ -123,7 +148,10 @@ private final class E2EAudioIO: @unchecked Sendable {
         }
 
         outputEngine.attach(player)
-        outputEngine.connect(player, to: outputEngine.mainMixerNode, format: outputFormat)
+        let hardwareFormat = outputEngine.mainMixerNode.outputFormat(forBus: 0)
+        hardwarePlaybackFormat = hardwareFormat
+        playbackConverter = AVAudioConverter(from: sourcePlaybackFormat, to: hardwareFormat)
+        outputEngine.connect(player, to: outputEngine.mainMixerNode, format: hardwareFormat)
         outputEngine.prepare()
         try outputEngine.start()
         player.play()
@@ -143,16 +171,60 @@ private final class E2EAudioIO: @unchecked Sendable {
     func playPCM16_24k(_ data: Data) {
         guard !data.isEmpty else { return }
         playbackQueue.async { [weak self] in
-            guard let self else { return }
+            guard let self,
+                  let hardwareFormat = self.hardwarePlaybackFormat,
+                  let converter = self.playbackConverter else { return }
+
             let frameCount = AVAudioFrameCount(data.count / MemoryLayout<Int16>.size)
             guard frameCount > 0,
-                  let buffer = AVAudioPCMBuffer(pcmFormat: self.outputFormat, frameCapacity: frameCount),
-                  let destination = buffer.int16ChannelData?[0] else {
+                  let sourceBuffer = AVAudioPCMBuffer(
+                    pcmFormat: self.sourcePlaybackFormat,
+                    frameCapacity: frameCount
+                  ),
+                  let sourceSamples = sourceBuffer.int16ChannelData?[0] else {
                 return
             }
-            buffer.frameLength = frameCount
-            _ = data.copyBytes(to: UnsafeMutableBufferPointer(start: destination, count: Int(frameCount)))
-            self.player.scheduleBuffer(buffer)
+            sourceBuffer.frameLength = frameCount
+            _ = data.copyBytes(
+                to: UnsafeMutableBufferPointer(
+                    start: sourceSamples,
+                    count: Int(frameCount)
+                )
+            )
+
+            let ratio = hardwareFormat.sampleRate / self.sourcePlaybackFormat.sampleRate
+            let outputCapacity = AVAudioFrameCount(
+                max(1, ceil(Double(frameCount) * ratio) + 64)
+            )
+            guard let outputBuffer = AVAudioPCMBuffer(
+                pcmFormat: hardwareFormat,
+                frameCapacity: outputCapacity
+            ) else {
+                return
+            }
+
+            var supplied = false
+            var conversionError: NSError?
+            let status = converter.convert(
+                to: outputBuffer,
+                error: &conversionError
+            ) { _, outStatus in
+                if supplied {
+                    outStatus.pointee = .noDataNow
+                    return nil
+                }
+                supplied = true
+                outStatus.pointee = .haveData
+                return sourceBuffer
+            }
+
+            guard status != .error,
+                  conversionError == nil,
+                  outputBuffer.frameLength > 0 else {
+                return
+            }
+
+            self.player.scheduleBuffer(outputBuffer)
         }
     }
 }
@@ -343,6 +415,7 @@ private final class EnglishInterviewAgent: NSObject, URLSessionWebSocketDelegate
 private struct SpeakAcrossE2EAgent {
     static func main() async {
         do {
+            E2ELogger.reset()
             let apiKey = try APIKeyLoader.load()
             let agentModel = DotEnv.value(for: "SPEAKACROSS_AGENT_MODEL") ?? "gpt-realtime-2.1"
             let agent = EnglishInterviewAgent(apiKey: apiKey, model: agentModel)
@@ -354,12 +427,12 @@ private struct SpeakAcrossE2EAgent {
                 audio?.playPCM16_24k(data)
             }
             agent.onReady = {
-                print("[E2E] English interviewer connected.")
-                print("[E2E] Wear headphones. Run SpeakAcross at the same time.")
-                print("[E2E] Answer in Chinese; the agent will reply only in English.")
+                E2ELogger.write("[E2E] English interviewer connected.")
+                E2ELogger.write("[E2E] Wear headphones. Run SpeakAcross at the same time.")
+                E2ELogger.write("[E2E] Answer in Chinese; the agent will reply only in English.")
             }
             agent.onError = { error in
-                fputs("\n[E2E error] \(error.localizedDescription)\n", stderr)
+                E2ELogger.write("[E2E error] \(error.localizedDescription)")
             }
 
             try agent.connect()
@@ -368,7 +441,7 @@ private struct SpeakAcrossE2EAgent {
                 try await Task.sleep(for: .seconds(60))
             }
         } catch {
-            fputs("SpeakAcross E2E agent failed: \(error.localizedDescription)\n", stderr)
+            E2ELogger.write("SpeakAcross E2E agent failed: \(error.localizedDescription)")
             exit(1)
         }
     }

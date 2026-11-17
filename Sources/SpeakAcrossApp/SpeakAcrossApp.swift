@@ -3,77 +3,108 @@ import SpeakAcrossCore
 
 @main
 struct SpeakAcrossApp: App {
+    @StateObject private var meeting = MeetingSessionController()
+
     var body: some Scene {
-        WindowGroup {
-            ContentView()
-                .frame(minWidth: 820, minHeight: 620)
+        WindowGroup("SpeakAcross") {
+            MyView(meeting: meeting)
+                .frame(minWidth: 760, minHeight: 560)
         }
+        .defaultSize(width: 900, height: 680)
+
+        Window("SpeakAcross Share View", id: "share-view") {
+            ShareView(meeting: meeting)
+                .frame(minWidth: 640, minHeight: 420)
+        }
+        .defaultSize(width: 840, height: 520)
     }
 }
 
 @MainActor
-struct ContentView: View {
-    @StateObject private var meeting = MeetingSessionController()
+private struct MyView: View {
+    @ObservedObject var meeting: MeetingSessionController
+    @Environment(\.openWindow) private var openWindow
+
     @State private var apiKey = ""
     @State private var hasAvailableKey = false
     @State private var keyError: String?
+    @State private var showsConnection = false
 
     var body: some View {
         VStack(spacing: 0) {
-            header
+            topBar
             Divider()
-            captions
+            remoteContent
+            Divider()
+            controls
         }
         .background(Color(nsColor: .windowBackgroundColor))
         .task {
-            loadStoredKey()
+            loadAvailableKey()
         }
     }
 
-    private var header: some View {
-        VStack(spacing: 14) {
+    private var topBar: some View {
+        HStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("SpeakAcross")
+                    .font(.title2.bold())
+                Text("My View")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            LanguageRoute(source: "English", target: "繁體中文")
+
+            StatusBadge(state: meeting.state)
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 16)
+    }
+
+    private var remoteContent: some View {
+        VStack(alignment: .leading, spacing: 0) {
             HStack {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("SpeakAcross")
-                        .font(.title2.bold())
-                    Text("Bilingual subtitles for any meeting")
-                        .foregroundStyle(.secondary)
-                }
+                Label("Remote", systemImage: "speaker.wave.2.fill")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
 
                 Spacer()
 
-                HStack(spacing: 7) {
-                    Circle()
-                        .fill(statusColor)
-                        .frame(width: 9, height: 9)
-                    Text(meeting.state.label)
-                        .font(.callout.weight(.medium))
+                if meeting.state == .running {
+                    Text("Listening")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
                 }
             }
+            .padding(.bottom, 24)
 
+            CaptionTimeline(
+                history: meeting.remoteHistory,
+                current: meeting.remoteCaption,
+                translatedPlaceholder: "對方的中文翻譯會顯示在這裡…",
+                originalPlaceholder: "Waiting for remote speech…",
+                primaryRole: .primary,
+                originalLabel: "ORIGINAL"
+            )
+
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.up.right.square")
+                Text("Your Chinese speech is translated to English in Share View.")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.top, 18)
+        }
+        .padding(26)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var controls: some View {
+        VStack(spacing: 12) {
             HStack(spacing: 10) {
-                SecureField(
-                    hasAvailableKey ? "OpenAI API key available (.env / env / Keychain)" : "OpenAI API key",
-                    text: $apiKey
-                )
-                .textFieldStyle(.roundedBorder)
-                .disabled(meeting.state == .running)
-
-                Button(hasAvailableKey && apiKey.isEmpty ? "Replace Key" : "Save Key") {
-                    saveKey()
-                }
-                .disabled(apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
-                if (try? OpenAIKeyStore.load()) != nil {
-                    Button("Remove", role: .destructive) {
-                        removeKey()
-                    }
-                    .disabled(meeting.state == .running)
-                }
-
-                Divider()
-                    .frame(height: 22)
-
                 if meeting.state == .running {
                     Button("Stop Meeting", role: .destructive) {
                         Task { await meeting.stop() }
@@ -81,17 +112,43 @@ struct ContentView: View {
                 } else {
                     Button("Start Meeting") {
                         Task {
-                            let key = apiKey.isEmpty ? (try? OpenAIKeyStore.resolve()) ?? "" : apiKey
+                            let key = apiKey.isEmpty
+                                ? (try? OpenAIKeyStore.resolve()) ?? ""
+                                : apiKey
                             await meeting.start(apiKey: key)
                         }
                     }
+                    .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.return, modifiers: [.command])
                     .disabled(meeting.state.isBusy || (!hasAvailableKey && apiKey.isEmpty))
+                }
+
+                Button {
+                    openWindow(id: "share-view")
+                } label: {
+                    Label("Open Share View", systemImage: "rectangle.on.rectangle")
                 }
 
                 Button("Clear") {
                     meeting.clearCaptions()
                 }
+
+                Spacer()
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showsConnection.toggle()
+                    }
+                } label: {
+                    Label("Connection", systemImage: "key")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+            }
+
+            if showsConnection {
+                connectionPanel
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
 
             if let keyError {
@@ -108,40 +165,41 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(18)
+        .padding(.horizontal, 22)
+        .padding(.vertical, 14)
     }
 
-    private var captions: some View {
-        ScrollView {
-            VStack(spacing: 18) {
-                CaptionCard(
-                    speaker: "Remote",
-                    originalLabel: "Original",
-                    translatedLabel: "繁體中文",
-                    caption: meeting.remoteCaption
-                )
+    private var connectionPanel: some View {
+        HStack(spacing: 10) {
+            SecureField(
+                hasAvailableKey
+                    ? "OpenAI API key available (.env / env / Keychain)"
+                    : "OpenAI API key",
+                text: $apiKey
+            )
+            .textFieldStyle(.roundedBorder)
+            .disabled(meeting.state == .running)
 
-                CaptionCard(
-                    speaker: "You",
-                    originalLabel: "原文",
-                    translatedLabel: "English",
-                    caption: meeting.localCaption
-                )
+            Button(hasAvailableKey && apiKey.isEmpty ? "Replace Key" : "Save Key") {
+                saveKey()
             }
-            .padding(22)
+            .disabled(apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            if (try? OpenAIKeyStore.load()) != nil {
+                Button("Remove", role: .destructive) {
+                    removeKey()
+                }
+                .disabled(meeting.state == .running)
+            }
         }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
     }
 
-    private var statusColor: Color {
-        switch meeting.state {
-        case .running: .green
-        case .starting, .stopping: .orange
-        case .failed: .red
-        case .idle: .secondary
-        }
-    }
-
-    private func loadStoredKey() {
+    private func loadAvailableKey() {
         do {
             hasAvailableKey = try OpenAIKeyStore.resolve() != nil
             keyError = nil
@@ -173,67 +231,250 @@ struct ContentView: View {
     }
 }
 
-private struct CaptionCard: View {
-    let speaker: String
-    let originalLabel: String
-    let translatedLabel: String
-    let caption: MeetingCaption
+@MainActor
+private struct ShareView: View {
+    @ObservedObject var meeting: MeetingSessionController
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text(speaker)
-                    .font(.headline)
-                Spacer()
-                Image(systemName: speaker == "You" ? "mic.fill" : "speaker.wave.2.fill")
+        VStack(spacing: 0) {
+            shareHeader
+            Divider()
+            shareContent
+        }
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var shareHeader: some View {
+        HStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("SpeakAcross")
+                    .font(.headline.weight(.semibold))
+                Text("Share View")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
-            SubtitleBlock(
-                label: originalLabel,
-                text: caption.originalText,
-                placeholder: "Waiting for speech…"
-            )
+            Spacer()
 
-            Divider()
+            LanguageRoute(source: "中文", target: "English")
+            StatusBadge(state: meeting.state)
+        }
+        .padding(.horizontal, 22)
+        .padding(.vertical, 14)
+    }
 
-            SubtitleBlock(
-                label: translatedLabel,
-                text: caption.translatedText,
-                placeholder: "Translation will appear here…",
-                emphasized: true
+    private var shareContent: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            HStack {
+                Label("You", systemImage: "mic.fill")
+                    .font(.headline)
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                if meeting.state == .running {
+                    Text(meeting.localCaption.originalText.isEmpty ? "Waiting" : "Translating")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            CaptionTimeline(
+                history: meeting.localHistory,
+                current: meeting.localCaption,
+                translatedPlaceholder: "Your English translation will appear here…",
+                originalPlaceholder: "等待中文語音…",
+                primaryRole: .share,
+                originalLabel: "原文"
             )
         }
-        .padding(20)
+        .padding(28)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+private struct CaptionTimeline: View {
+    let history: [MeetingCaption]
+    let current: MeetingCaption
+    let translatedPlaceholder: String
+    let originalPlaceholder: String
+    let primaryRole: SubtitleText.Role
+    let originalLabel: String
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 24) {
+                    ForEach(history) { caption in
+                        FinalizedTurn(caption: caption, originalLabel: originalLabel)
+                    }
+
+                    CurrentTurn(
+                        caption: current,
+                        translatedPlaceholder: translatedPlaceholder,
+                        originalPlaceholder: originalPlaceholder,
+                        primaryRole: primaryRole,
+                        originalLabel: originalLabel
+                    )
+                    .id("current-turn")
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, 8)
+            }
+            .onChange(of: history.count) { _, _ in
+                withAnimation(.easeOut(duration: 0.2)) {
+                    proxy.scrollTo("current-turn", anchor: .bottom)
+                }
+            }
+        }
+    }
+}
+
+private struct FinalizedTurn: View {
+    let caption: MeetingCaption
+    let originalLabel: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(caption.translatedText)
+                .font(.title3)
+                .foregroundStyle(.primary)
+                .textSelection(.enabled)
+
+            if !caption.originalText.isEmpty {
+                Text(caption.originalText)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 4)
+        .opacity(0.72)
+    }
+}
+
+private struct CurrentTurn: View {
+    let caption: MeetingCaption
+    let translatedPlaceholder: String
+    let originalPlaceholder: String
+    let primaryRole: SubtitleText.Role
+    let originalLabel: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            SubtitleText(
+                text: caption.translatedText,
+                placeholder: translatedPlaceholder,
+                role: primaryRole
+            )
+
+            if !caption.originalText.isEmpty {
+                Divider()
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(originalLabel)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+
+                    SubtitleText(
+                        text: caption.originalText,
+                        placeholder: originalPlaceholder,
+                        role: .secondary
+                    )
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct LanguageRoute: View {
+    let source: String
+    let target: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(source)
+            Image(systemName: "arrow.right")
+                .font(.caption2)
+            Text(target)
+        }
+        .font(.caption.weight(.medium))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
         .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color(nsColor: .controlBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.primary.opacity(0.08))
+            Capsule()
+                .fill(Color.primary.opacity(0.05))
         )
     }
 }
 
-private struct SubtitleBlock: View {
-    let label: String
-    let text: String
-    let placeholder: String
-    var emphasized = false
+private struct StatusBadge: View {
+    let state: MeetingSessionController.State
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(label.uppercased())
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.secondary)
+        HStack(spacing: 7) {
+            Circle()
+                .fill(color)
+                .frame(width: 8, height: 8)
+            Text(state.label)
+                .font(.caption.weight(.semibold))
+        }
+        .foregroundStyle(.secondary)
+    }
 
-            Text(text.isEmpty ? placeholder : text)
-                .font(emphasized ? .title3 : .body)
-                .fontWeight(emphasized ? .medium : .regular)
-                .foregroundStyle(text.isEmpty ? .tertiary : .primary)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+    private var color: Color {
+        switch state {
+        case .running: .green
+        case .starting, .stopping: .orange
+        case .failed: .red
+        case .idle: .secondary
+        }
+    }
+}
+
+private struct SubtitleText: View {
+    enum Role {
+        case primary
+        case secondary
+        case share
+    }
+
+    let text: String
+    let placeholder: String
+    let role: Role
+
+    var body: some View {
+        Text(text.isEmpty ? placeholder : text)
+            .font(font)
+            .fontWeight(weight)
+            .foregroundStyle(text.isEmpty ? AnyShapeStyle(.tertiary) : AnyShapeStyle(color))
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .lineSpacing(role == .share ? 7 : 5)
+    }
+
+    private var font: Font {
+        switch role {
+        case .primary: .system(size: 32)
+        case .secondary: .system(size: 17)
+        case .share: .system(size: 36)
+        }
+    }
+
+    private var weight: Font.Weight {
+        switch role {
+        case .primary, .share: .medium
+        case .secondary: .regular
+        }
+    }
+
+    private var color: Color {
+        switch role {
+        case .secondary: .secondary
+        case .primary, .share: .primary
         }
     }
 }

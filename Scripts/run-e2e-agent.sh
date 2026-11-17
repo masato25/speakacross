@@ -9,4 +9,15 @@ echo "Wear headphones and start SpeakAcross first."
 echo "Answer the interviewer in Chinese."
 echo ""
 
-exec swift run speakacross-e2e-agent
+./Scripts/build-e2e-agent-app.sh
+
+LOG_FILE="${TMPDIR:-/tmp}/speakacross-e2e-agent.log"
+rm -f "$LOG_FILE"
+
+open -n "$ROOT/SpeakAcrossE2EAgent.app"
+
+echo "Agent launched. Log: $LOG_FILE"
+echo "Press Ctrl-C to stop watching the log."
+
+touch "$LOG_FILE"
+tail -f "$LOG_FILE"

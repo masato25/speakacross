@@ -31,11 +31,18 @@ final class MeetingSessionController: ObservableObject {
     @Published private(set) var state: State = .idle
     @Published private(set) var remoteCaption = MeetingCaption(speaker: .remote)
     @Published private(set) var localCaption = MeetingCaption(speaker: .local)
+    @Published private(set) var remoteHistory: [MeetingCaption] = []
+    @Published private(set) var localHistory: [MeetingCaption] = []
 
     private var remoteSession: OpenAIRealtimeTranslationSession?
     private var localSession: OpenAIRealtimeTranslationSession?
     private var systemAudio: SystemAudioCapturer?
     private var microphone: MicrophoneCapturer?
+    private var remoteTurnBuffer = CaptionTurnBuffer(speaker: .remote)
+    private var localTurnBuffer = CaptionTurnBuffer(speaker: .local)
+    private var remoteFinalizeTask: Task<Void, Never>?
+    private var localFinalizeTask: Task<Void, Never>?
+    private let turnIdleNanoseconds: UInt64 = 1_100_000_000
 
     func start(apiKey: String) async {
         guard state == .idle || isFailed else { return }
@@ -138,27 +145,91 @@ final class MeetingSessionController: ObservableObject {
     private func appendOriginal(_ delta: String, speaker: MeetingSpeaker) {
         switch speaker {
         case .remote:
-            remoteCaption.originalText += delta
+            remoteTurnBuffer.appendOriginal(delta)
+            publishRemoteTurnState()
+            scheduleFinalize(for: .remote)
         case .local:
-            localCaption.originalText += delta
+            localTurnBuffer.appendOriginal(delta)
+            publishLocalTurnState()
+            scheduleFinalize(for: .local)
         }
     }
 
     private func appendTranslation(_ delta: String, speaker: MeetingSpeaker) {
         switch speaker {
         case .remote:
-            remoteCaption.translatedText += delta
+            remoteTurnBuffer.appendTranslation(delta)
+            publishRemoteTurnState()
+            scheduleFinalize(for: .remote)
         case .local:
-            localCaption.translatedText += delta
+            localTurnBuffer.appendTranslation(delta)
+            publishLocalTurnState()
+            scheduleFinalize(for: .local)
         }
     }
 
     private func resetCaptions() {
-        remoteCaption = MeetingCaption(speaker: .remote)
-        localCaption = MeetingCaption(speaker: .local)
+        remoteFinalizeTask?.cancel()
+        localFinalizeTask?.cancel()
+        remoteFinalizeTask = nil
+        localFinalizeTask = nil
+
+        remoteTurnBuffer.reset()
+        localTurnBuffer.reset()
+        publishRemoteTurnState()
+        publishLocalTurnState()
+    }
+
+    private func scheduleFinalize(for speaker: MeetingSpeaker) {
+        switch speaker {
+        case .remote:
+            remoteFinalizeTask?.cancel()
+            remoteFinalizeTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: self?.turnIdleNanoseconds ?? 1_100_000_000)
+                guard !Task.isCancelled else { return }
+                self?.finalizeTurn(for: .remote)
+            }
+
+        case .local:
+            localFinalizeTask?.cancel()
+            localFinalizeTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: self?.turnIdleNanoseconds ?? 1_100_000_000)
+                guard !Task.isCancelled else { return }
+                self?.finalizeTurn(for: .local)
+            }
+        }
+    }
+
+    private func finalizeTurn(for speaker: MeetingSpeaker) {
+        switch speaker {
+        case .remote:
+            guard remoteTurnBuffer.finalizeCurrent() != nil else { return }
+            publishRemoteTurnState()
+        case .local:
+            guard localTurnBuffer.finalizeCurrent() != nil else { return }
+            publishLocalTurnState()
+        }
+    }
+
+    private func publishRemoteTurnState() {
+        remoteCaption = remoteTurnBuffer.current
+        remoteHistory = remoteTurnBuffer.history
+    }
+
+    private func publishLocalTurnState() {
+        localCaption = localTurnBuffer.current
+        localHistory = localTurnBuffer.history
     }
 
     private func tearDown(abortSessions: Bool) async {
+        remoteFinalizeTask?.cancel()
+        localFinalizeTask?.cancel()
+        remoteFinalizeTask = nil
+        localFinalizeTask = nil
+
+        finalizeTurn(for: .remote)
+        finalizeTurn(for: .local)
+
         microphone?.stop()
         microphone = nil
 
