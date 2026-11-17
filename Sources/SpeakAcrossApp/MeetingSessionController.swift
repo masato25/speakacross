@@ -38,11 +38,8 @@ final class MeetingSessionController: ObservableObject {
     private var localSession: OpenAIRealtimeTranslationSession?
     private var systemAudio: SystemAudioCapturer?
     private var microphone: MicrophoneCapturer?
-    private var remoteTurnBuffer = CaptionTurnBuffer(speaker: .remote)
-    private var localTurnBuffer = CaptionTurnBuffer(speaker: .local)
-    private var remoteFinalizeTask: Task<Void, Never>?
-    private var localFinalizeTask: Task<Void, Never>?
-    private let turnIdleNanoseconds: UInt64 = 1_100_000_000
+    private var remoteTimeline = AlignedCaptionTimeline(speaker: .remote)
+    private var localTimeline = AlignedCaptionTimeline(speaker: .local)
 
     func start(apiKey: String) async {
         guard state == .idle || isFailed else { return }
@@ -61,15 +58,15 @@ final class MeetingSessionController: ObservableObject {
 
         let remote = OpenAIRealtimeTranslationSession(
             apiKey: key,
-            sourceLanguage: "en",
-            targetLanguage: "zh-TW",
-            model: translationModel
+            targetLanguage: "zh",
+            model: translationModel,
+            normalizeTraditionalChinese: true
         )
         let local = OpenAIRealtimeTranslationSession(
             apiKey: key,
-            sourceLanguage: "zh",
             targetLanguage: "en",
-            model: translationModel
+            model: translationModel,
+            normalizeOriginalTraditionalChinese: true
         )
 
         wire(remote, speaker: .remote)
@@ -122,13 +119,13 @@ final class MeetingSessionController: ObservableObject {
         _ session: OpenAIRealtimeTranslationSession,
         speaker: MeetingSpeaker
     ) {
-        session.onOriginalDelta = { [weak self] delta in
+        session.onOriginalTranscriptDelta = { [weak self] delta in
             Task { @MainActor in
                 self?.appendOriginal(delta, speaker: speaker)
             }
         }
 
-        session.onTranslationDelta = { [weak self] delta in
+        session.onTranslationTranscriptDelta = { [weak self] delta in
             Task { @MainActor in
                 self?.appendTranslation(delta, speaker: speaker)
             }
@@ -142,93 +139,50 @@ final class MeetingSessionController: ObservableObject {
         }
     }
 
-    private func appendOriginal(_ delta: String, speaker: MeetingSpeaker) {
+    private func appendOriginal(_ delta: RealtimeTranscriptDelta, speaker: MeetingSpeaker) {
         switch speaker {
         case .remote:
-            remoteTurnBuffer.appendOriginal(delta)
+            remoteTimeline.appendOriginal(delta)
             publishRemoteTurnState()
-            scheduleFinalize(for: .remote)
         case .local:
-            localTurnBuffer.appendOriginal(delta)
+            localTimeline.appendOriginal(delta)
             publishLocalTurnState()
-            scheduleFinalize(for: .local)
         }
     }
 
-    private func appendTranslation(_ delta: String, speaker: MeetingSpeaker) {
+    private func appendTranslation(_ delta: RealtimeTranscriptDelta, speaker: MeetingSpeaker) {
         switch speaker {
         case .remote:
-            remoteTurnBuffer.appendTranslation(delta)
+            remoteTimeline.appendTranslation(delta)
             publishRemoteTurnState()
-            scheduleFinalize(for: .remote)
         case .local:
-            localTurnBuffer.appendTranslation(delta)
+            localTimeline.appendTranslation(delta)
             publishLocalTurnState()
-            scheduleFinalize(for: .local)
         }
     }
 
     private func resetCaptions() {
-        remoteFinalizeTask?.cancel()
-        localFinalizeTask?.cancel()
-        remoteFinalizeTask = nil
-        localFinalizeTask = nil
-
-        remoteTurnBuffer.reset()
-        localTurnBuffer.reset()
+        remoteTimeline.reset()
+        localTimeline.reset()
         publishRemoteTurnState()
         publishLocalTurnState()
     }
 
-    private func scheduleFinalize(for speaker: MeetingSpeaker) {
-        switch speaker {
-        case .remote:
-            remoteFinalizeTask?.cancel()
-            remoteFinalizeTask = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: self?.turnIdleNanoseconds ?? 1_100_000_000)
-                guard !Task.isCancelled else { return }
-                self?.finalizeTurn(for: .remote)
-            }
-
-        case .local:
-            localFinalizeTask?.cancel()
-            localFinalizeTask = Task { [weak self] in
-                try? await Task.sleep(nanoseconds: self?.turnIdleNanoseconds ?? 1_100_000_000)
-                guard !Task.isCancelled else { return }
-                self?.finalizeTurn(for: .local)
-            }
-        }
-    }
-
-    private func finalizeTurn(for speaker: MeetingSpeaker) {
-        switch speaker {
-        case .remote:
-            guard remoteTurnBuffer.finalizeCurrent() != nil else { return }
-            publishRemoteTurnState()
-        case .local:
-            guard localTurnBuffer.finalizeCurrent() != nil else { return }
-            publishLocalTurnState()
-        }
-    }
-
     private func publishRemoteTurnState() {
-        remoteCaption = remoteTurnBuffer.current
-        remoteHistory = remoteTurnBuffer.history
+        remoteCaption = remoteTimeline.current
+        remoteHistory = remoteTimeline.history
     }
 
     private func publishLocalTurnState() {
-        localCaption = localTurnBuffer.current
-        localHistory = localTurnBuffer.history
+        localCaption = localTimeline.current
+        localHistory = localTimeline.history
     }
 
     private func tearDown(abortSessions: Bool) async {
-        remoteFinalizeTask?.cancel()
-        localFinalizeTask?.cancel()
-        remoteFinalizeTask = nil
-        localFinalizeTask = nil
-
-        finalizeTurn(for: .remote)
-        finalizeTurn(for: .local)
+        remoteTimeline.finalizeCurrent()
+        localTimeline.finalizeCurrent()
+        publishRemoteTurnState()
+        publishLocalTurnState()
 
         microphone?.stop()
         microphone = nil

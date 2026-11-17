@@ -1,10 +1,20 @@
 import Foundation
 
-enum RealtimeTranslationError: LocalizedError {
+public struct RealtimeTranscriptDelta: Equatable, Sendable {
+    public let text: String
+    public let elapsedMilliseconds: Int?
+
+    public init(text: String, elapsedMilliseconds: Int?) {
+        self.text = text
+        self.elapsedMilliseconds = elapsedMilliseconds
+    }
+}
+
+public enum RealtimeTranslationError: LocalizedError {
     case invalidEndpoint
     case server(String)
 
-    var errorDescription: String? {
+    public var errorDescription: String? {
         switch self {
         case .invalidEndpoint:
             "Invalid OpenAI Realtime translation endpoint."
@@ -14,17 +24,21 @@ enum RealtimeTranslationError: LocalizedError {
     }
 }
 
-final class OpenAIRealtimeTranslationSession: NSObject, URLSessionWebSocketDelegate, @unchecked Sendable {
-    var onOriginalDelta: (@Sendable (String) -> Void)?
-    var onTranslationDelta: (@Sendable (String) -> Void)?
-    var onError: (@Sendable (Error) -> Void)?
-    var onClosed: (@Sendable () -> Void)?
+public final class OpenAIRealtimeTranslationSession: NSObject, URLSessionWebSocketDelegate, @unchecked Sendable {
+    public var onReady: (@Sendable () -> Void)?
+    public var onOriginalDelta: (@Sendable (String) -> Void)?
+    public var onTranslationDelta: (@Sendable (String) -> Void)?
+    public var onOriginalTranscriptDelta: (@Sendable (RealtimeTranscriptDelta) -> Void)?
+    public var onTranslationTranscriptDelta: (@Sendable (RealtimeTranscriptDelta) -> Void)?
+    public var onError: (@Sendable (Error) -> Void)?
+    public var onClosed: (@Sendable () -> Void)?
 
     private let apiKey: String
-    private let sourceLanguage: String
     private let targetLanguage: String
     private let model: String
     private let transcriptionModel: String
+    private let normalizeOriginalTraditionalChinese: Bool
+    private let normalizeTraditionalChinese: Bool
 
     private var urlSession: URLSession?
     private var webSocket: URLSessionWebSocketTask?
@@ -35,22 +49,24 @@ final class OpenAIRealtimeTranslationSession: NSObject, URLSessionWebSocketDeleg
     // 24,000 samples/sec × 0.2 sec × 2 bytes/sample.
     private let preferredChunkBytes = 9_600
 
-    init(
+    public init(
         apiKey: String,
-        sourceLanguage: String,
         targetLanguage: String,
         model: String = "gpt-realtime-translate",
-        transcriptionModel: String = "gpt-realtime-whisper"
+        transcriptionModel: String = "gpt-realtime-whisper",
+        normalizeOriginalTraditionalChinese: Bool = false,
+        normalizeTraditionalChinese: Bool = false
     ) {
         self.apiKey = apiKey
-        self.sourceLanguage = sourceLanguage
         self.targetLanguage = targetLanguage
         self.model = model
         self.transcriptionModel = transcriptionModel
+        self.normalizeOriginalTraditionalChinese = normalizeOriginalTraditionalChinese
+        self.normalizeTraditionalChinese = normalizeTraditionalChinese
         super.init()
     }
 
-    func connect() throws {
+    public func connect() throws {
         guard var components = URLComponents(
             string: "wss://api.openai.com/v1/realtime/translations"
         ) else {
@@ -80,7 +96,7 @@ final class OpenAIRealtimeTranslationSession: NSObject, URLSessionWebSocketDeleg
         receiveNext()
     }
 
-    func appendPCM16_24k(_ data: Data) {
+    public func appendPCM16_24k(_ data: Data) {
         guard !data.isEmpty, !closeRequested else { return }
 
         sendQueue.async { [weak self] in
@@ -95,7 +111,7 @@ final class OpenAIRealtimeTranslationSession: NSObject, URLSessionWebSocketDeleg
         }
     }
 
-    func close() {
+    public func close() {
         guard !closeRequested else { return }
         closeRequested = true
 
@@ -109,7 +125,7 @@ final class OpenAIRealtimeTranslationSession: NSObject, URLSessionWebSocketDeleg
         }
     }
 
-    func abort() {
+    public func abort() {
         closeRequested = true
         webSocket?.cancel(with: .goingAway, reason: nil)
         webSocket = nil
@@ -117,7 +133,7 @@ final class OpenAIRealtimeTranslationSession: NSObject, URLSessionWebSocketDeleg
         urlSession = nil
     }
 
-    func urlSession(
+    public func urlSession(
         _ session: URLSession,
         webSocketTask: URLSessionWebSocketTask,
         didOpenWithProtocol protocol: String?
@@ -128,8 +144,7 @@ final class OpenAIRealtimeTranslationSession: NSObject, URLSessionWebSocketDeleg
                 "audio": [
                     "input": [
                         "transcription": [
-                            "model": transcriptionModel,
-                            "language": sourceLanguage
+                            "model": transcriptionModel
                         ]
                     ],
                     "output": [
@@ -213,14 +228,33 @@ final class OpenAIRealtimeTranslationSession: NSObject, URLSessionWebSocketDeleg
         }
 
         switch type {
+        case "session.updated":
+            onReady?()
+
         case "session.input_transcript.delta":
             if let delta = object["delta"] as? String {
-                onOriginalDelta?(delta)
+                let normalized = normalizeOriginalTraditionalChinese
+                    ? TraditionalChineseText.normalize(delta)
+                    : delta
+                let event = RealtimeTranscriptDelta(
+                    text: normalized,
+                    elapsedMilliseconds: object["elapsed_ms"] as? Int
+                )
+                onOriginalDelta?(normalized)
+                onOriginalTranscriptDelta?(event)
             }
 
         case "session.output_transcript.delta":
             if let delta = object["delta"] as? String {
-                onTranslationDelta?(delta)
+                let normalized = normalizeTraditionalChinese
+                    ? TraditionalChineseText.normalize(delta)
+                    : delta
+                let event = RealtimeTranscriptDelta(
+                    text: normalized,
+                    elapsedMilliseconds: object["elapsed_ms"] as? Int
+                )
+                onTranslationDelta?(normalized)
+                onTranslationTranscriptDelta?(event)
             }
 
         case "error":

@@ -144,6 +144,16 @@ You speak Chinese. The agent listens through the microphone and responds only in
 
 See Docs/e2e-testing.md.
 
+## Automated full E2E test
+
+For repeatable development regression, SpeakAcross also includes a fully autonomous AI-to-AI test. An English Realtime agent and a Traditional Chinese Realtime agent talk to each other using real PCM audio while the production SpeakAcross translation client validates both translation directions and turn segmentation.
+
+```sh
+./Scripts/run-full-e2e.sh
+```
+
+See [Docs/full-e2e.md](Docs/full-e2e.md).
+
 ## Status
 
 Early-stage MVP.
