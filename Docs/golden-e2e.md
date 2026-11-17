@@ -48,7 +48,17 @@ SPEAKACROSS_GOLDEN_JUDGE_MODEL=gpt-5.4-mini
 SPEAKACROSS_GOLDEN_ENGINE=fast
 SPEAKACROSS_GOLDEN_MIN_SCORE=80
 SPEAKACROSS_GOLDEN_MAX_CASES=6
+SPEAKACROSS_GOLDEN_REPEAT=1
+# SPEAKACROSS_GOLDEN_CASE=zh_rpc_failover
 SPEAKACROSS_GOLDEN_REPORT=/tmp/speakacross-golden-e2e-report.json
 ```
+
+For a longer-lived Accurate session soak test, repeat the same fixtures without recreating the interpreter sessions:
+
+```sh
+SPEAKACROSS_SOAK_REPEAT=10 ./Scripts/run-soak.sh
+```
+
+The default is 10 repeats (60 translated turns). Reduce the repeat count for a smoke test or increase it for longer local validation.
 
 The golden-set test uses API quota and is intentionally separate from the fast unit-test suite.

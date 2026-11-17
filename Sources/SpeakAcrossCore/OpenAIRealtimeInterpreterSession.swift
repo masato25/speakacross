@@ -31,6 +31,7 @@ public final class OpenAIRealtimeInterpreterSession: NSObject, URLSessionWebSock
     private let normalizeOriginalTraditionalChinese: Bool
     private let normalizeTranslationTraditionalChinese: Bool
     private let automaticTurnDetection: Bool
+    private let vadSilenceDurationMilliseconds: Int
 
     private var urlSession: URLSession?
     private var webSocket: URLSessionWebSocketTask?
@@ -56,7 +57,8 @@ public final class OpenAIRealtimeInterpreterSession: NSObject, URLSessionWebSock
         transcriptionLanguages: [String],
         normalizeOriginalTraditionalChinese: Bool = false,
         normalizeTranslationTraditionalChinese: Bool = false,
-        automaticTurnDetection: Bool = true
+        automaticTurnDetection: Bool = true,
+        vadSilenceDurationMilliseconds: Int = 1_200
     ) {
         self.apiKey = apiKey
         self.model = model
@@ -67,6 +69,7 @@ public final class OpenAIRealtimeInterpreterSession: NSObject, URLSessionWebSock
         self.normalizeOriginalTraditionalChinese = normalizeOriginalTraditionalChinese
         self.normalizeTranslationTraditionalChinese = normalizeTranslationTraditionalChinese
         self.automaticTurnDetection = automaticTurnDetection
+        self.vadSilenceDurationMilliseconds = max(400, min(vadSilenceDurationMilliseconds, 3_000))
         self.instructions = Self.interpreterInstructions(targetLanguageName: targetLanguageName)
         super.init()
     }
@@ -157,7 +160,7 @@ public final class OpenAIRealtimeInterpreterSession: NSObject, URLSessionWebSock
                 "type": "server_vad",
                 "threshold": 0.5,
                 "prefix_padding_ms": 300,
-                "silence_duration_ms": 700,
+                "silence_duration_ms": vadSilenceDurationMilliseconds,
                 "create_response": true,
                 "interrupt_response": false
             ]
@@ -367,7 +370,20 @@ public final class OpenAIRealtimeInterpreterSession: NSObject, URLSessionWebSock
     }
 
     private static func interpreterInstructions(targetLanguageName: String) -> String {
-        """
+        let glossary: String
+        if targetLanguageName.lowercased().contains("english") {
+            glossary = """
+            For Mandarin technical speech, use these meanings consistently:
+            逾時 = timeout; 連續 = consecutive; 備援 = backup/failover; 部位 = position; 槓桿 = leverage; 清算 = liquidation; 借款人 = borrower.
+            Never replace a timeout condition with a generic failure condition.
+            """
+        } else {
+            glossary = """
+            Keep spoken English technical terms such as RPC, gateway, provider, keeper, health factor, Morpho, Uniswap v3, and rebalancing in English when that is clearer than inventing a Chinese role or product name.
+            """
+        }
+
+        return """
         You are a professional meeting interpreter, not an assistant.
         Translate every user utterance into \(targetLanguageName).
         Output ONLY the translation. Never answer the speaker, explain, summarize, or add commentary.
@@ -375,6 +391,7 @@ public final class OpenAIRealtimeInterpreterSession: NSObject, URLSessionWebSock
         Preserve these technical terms exactly when spoken: RPC, gateway, provider, keeper, health factor, Morpho, Uniswap v3, rebalancing, circuit breaker, smart contract, DeFi.
         Preserve all numbers and units exactly in meaning.
         If a technical term is mixed into another language, keep that term unchanged instead of guessing a translation.
+        \(glossary)
         """
     }
 }

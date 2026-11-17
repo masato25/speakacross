@@ -55,7 +55,14 @@ final class GoldenRealtimeInterpreter: @unchecked Sendable {
             "rebalancing",
             "circuit breaker",
             "smart contract",
-            "DeFi"
+            "DeFi",
+            "逾時",
+            "連續",
+            "備援",
+            "部位",
+            "槓桿",
+            "清算",
+            "借款人"
         ]
 
         switch direction {

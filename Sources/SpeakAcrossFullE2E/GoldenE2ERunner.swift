@@ -9,11 +9,14 @@ private struct GoldenConfig {
     let judgeModel: String
     let minScore: Int
     let maxCases: Int
+    let repeatCount: Int
+    let caseID: String?
     let reportPath: String
 
     static func load() -> GoldenConfig {
         let score = Int(DotEnv.value(for: "SPEAKACROSS_GOLDEN_MIN_SCORE") ?? "") ?? 80
         let count = Int(DotEnv.value(for: "SPEAKACROSS_GOLDEN_MAX_CASES") ?? "") ?? 6
+        let repeatCount = Int(DotEnv.value(for: "SPEAKACROSS_GOLDEN_REPEAT") ?? "") ?? 1
 
         return GoldenConfig(
             engine: (DotEnv.value(for: "SPEAKACROSS_GOLDEN_ENGINE") ?? "fast").lowercased(),
@@ -23,6 +26,8 @@ private struct GoldenConfig {
             judgeModel: DotEnv.value(for: "SPEAKACROSS_GOLDEN_JUDGE_MODEL") ?? "gpt-5.4-mini",
             minScore: min(max(score, 1), 100),
             maxCases: min(max(count, 1), GoldenCaseCatalog.all.count),
+            repeatCount: min(max(repeatCount, 1), 100),
+            caseID: DotEnv.value(for: "SPEAKACROSS_GOLDEN_CASE"),
             reportPath: DotEnv.value(for: "SPEAKACROSS_GOLDEN_REPORT")
                 ?? "/tmp/speakacross-golden-e2e-report.json"
         )
@@ -66,6 +71,10 @@ enum GoldenE2ERunner {
         print("  judge model: \(config.judgeModel)")
         print("  min semantic score: \(config.minScore)")
         print("  cases: \(config.maxCases)/\(GoldenCaseCatalog.all.count)")
+        print("  repeats: \(config.repeatCount)")
+        if let caseID = config.caseID {
+            print("  case filter: \(caseID)")
+        }
 
         var englishSpeaker: GoldenSpeaker?
         var chineseSpeaker: GoldenSpeaker?
@@ -74,28 +83,6 @@ enum GoldenE2ERunner {
 
         do {
             let apiKey = try FullE2EKeyLoader.load()
-            let enSpeaker = GoldenSpeaker(
-                apiKey: apiKey,
-                model: config.agentModel,
-                voice: "marin",
-                label: "en"
-            )
-            let zhSpeaker = GoldenSpeaker(
-                apiKey: apiKey,
-                model: config.agentModel,
-                voice: "cedar",
-                label: "zh"
-            )
-            englishSpeaker = enSpeaker
-            chineseSpeaker = zhSpeaker
-
-            async let enReady: Void = enSpeaker.connect()
-            async let zhReady: Void = zhSpeaker.connect()
-            _ = try await (enReady, zhReady)
-
-            print("[ready] English fixture speaker")
-            print("[ready] Chinese fixture speaker")
-
             let judge = SemanticJudge(apiKey: apiKey, model: config.judgeModel)
             var results: [GoldenCaseResult] = []
 
@@ -125,7 +112,46 @@ enum GoldenE2ERunner {
                 print("[ready] Accurate ZH → EN interpreter")
             }
 
-            for fixture in GoldenCaseCatalog.all.prefix(config.maxCases) {
+            let fixtures: [GoldenCase]
+            if let caseID = config.caseID {
+                fixtures = GoldenCaseCatalog.all.filter { $0.id == caseID }
+                if fixtures.isEmpty {
+                    throw NSError(
+                        domain: "SpeakAcross.Golden",
+                        code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: "Unknown golden case: \(caseID)"]
+                    )
+                }
+            } else {
+                fixtures = Array(GoldenCaseCatalog.all.prefix(config.maxCases))
+            }
+            for iteration in 1...config.repeatCount {
+                if config.repeatCount > 1 {
+                    print("\n=== Soak iteration \(iteration)/\(config.repeatCount) ===")
+                }
+
+                let enSpeaker = GoldenSpeaker(
+                    apiKey: apiKey,
+                    model: config.agentModel,
+                    voice: "marin",
+                    label: "en-\(iteration)"
+                )
+                let zhSpeaker = GoldenSpeaker(
+                    apiKey: apiKey,
+                    model: config.agentModel,
+                    voice: "cedar",
+                    label: "zh-\(iteration)"
+                )
+                englishSpeaker = enSpeaker
+                chineseSpeaker = zhSpeaker
+
+                async let enReady: Void = enSpeaker.connect()
+                async let zhReady: Void = zhSpeaker.connect()
+                _ = try await (enReady, zhReady)
+                print("[ready] English fixture speaker \(iteration)")
+                print("[ready] Chinese fixture speaker \(iteration)")
+
+                for fixture in fixtures {
                 print("\n[\(fixture.id)] \(fixture.direction.rawValue)")
                 print("  source: \(fixture.source)")
 
@@ -207,10 +233,14 @@ enum GoldenE2ERunner {
                         print("    issue: \(issue)")
                     }
                 }
+                }
+
+                enSpeaker.abort()
+                zhSpeaker.abort()
+                englishSpeaker = nil
+                chineseSpeaker = nil
             }
 
-            enSpeaker.abort()
-            zhSpeaker.abort()
             accurateEN?.abort()
             accurateZH?.abort()
 
@@ -292,6 +322,7 @@ enum GoldenE2ERunner {
                 "judge": config.judgeModel
             ],
             "min_score": config.minScore,
+            "repeat_count": config.repeatCount,
             "cases": cases
         ]
 

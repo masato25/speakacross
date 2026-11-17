@@ -180,6 +180,12 @@ For the production Accurate path, including automatic server VAD:
 
 The golden tests cover technical terminology, numeric fidelity, source-ASR fidelity, Traditional Chinese output, and semantic correctness with a structured judge. See [Docs/golden-e2e.md](Docs/golden-e2e.md).
 
+For long-lived Accurate-session validation:
+
+```sh
+SPEAKACROSS_SOAK_REPEAT=10 ./Scripts/run-soak.sh
+```
+
 ## Status
 
 Alpha MVP. Both translation modes are covered by automated end-to-end regression; real microphone, ScreenCaptureKit, AirPods, and third-party meeting-app acceptance remain separate hardware tests.

@@ -61,6 +61,12 @@ private struct MyView: View {
             ModeBadge(mode: meeting.mode)
 
             StatusBadge(state: meeting.state)
+
+            if let recoveryMessage = meeting.recoveryMessage {
+                Text(recoveryMessage)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.orange)
+            }
         }
         .padding(.horizontal, 22)
         .padding(.vertical, 16)
