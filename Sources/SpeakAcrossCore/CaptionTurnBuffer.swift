@@ -12,7 +12,10 @@ public struct CaptionTurnBuffer: Equatable, Sendable {
     }
 
     public mutating func appendOriginal(_ delta: String) {
-        current.originalText += delta
+        current.originalText = Self.appendingNonOverlapping(
+            delta,
+            to: current.originalText
+        )
     }
 
     public mutating func appendTranslation(_ delta: String) {
@@ -44,5 +47,24 @@ public struct CaptionTurnBuffer: Equatable, Sendable {
     public var hasVisibleContent: Bool {
         !current.originalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         !current.translatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private static func appendingNonOverlapping(_ delta: String, to existing: String) -> String {
+        guard !existing.isEmpty, !delta.isEmpty else { return existing + delta }
+
+        // Live transcription can occasionally resend a substantial suffix/prefix chunk.
+        // Only collapse meaningful overlap so short, intentional repetitions such as
+        // "好，好" remain untouched.
+        let minimumOverlap = 6
+        let maximumOverlap = min(existing.count, delta.count)
+        guard maximumOverlap >= minimumOverlap else { return existing + delta }
+
+        for length in stride(from: maximumOverlap, through: minimumOverlap, by: -1) {
+            if existing.suffix(length) == delta.prefix(length) {
+                return existing + delta.dropFirst(length)
+            }
+        }
+
+        return existing + delta
     }
 }

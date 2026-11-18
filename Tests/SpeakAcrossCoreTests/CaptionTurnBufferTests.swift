@@ -34,3 +34,19 @@ import Testing
     #expect(buffer.finalizeCurrent() == nil)
     #expect(buffer.history.isEmpty)
 }
+
+@Test func captionTurnBufferCollapsesSubstantialOverlappingOriginalChunks() {
+    var buffer = CaptionTurnBuffer(speaker: .local)
+    buffer.appendOriginal("我覺得這樣子可以測試看看")
+    buffer.appendOriginal("可以測試看看到底在做什麼。")
+
+    #expect(buffer.current.originalText == "我覺得這樣子可以測試看看到底在做什麼。")
+}
+
+@Test func captionTurnBufferPreservesShortIntentionalRepetition() {
+    var buffer = CaptionTurnBuffer(speaker: .local)
+    buffer.appendOriginal("我知道")
+    buffer.appendOriginal("我知道")
+
+    #expect(buffer.current.originalText == "我知道我知道")
+}

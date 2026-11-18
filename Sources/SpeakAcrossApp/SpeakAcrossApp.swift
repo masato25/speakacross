@@ -380,14 +380,10 @@ private struct ShareView: View {
     }
 
     private var shareHeader: some View {
-        HStack(spacing: 14) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("SpeakAcross")
-                    .font(.headline.weight(.semibold))
-                Text("Share View")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+        HStack(spacing: 12) {
+            Text("SpeakAcross")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
 
             Spacer()
 
@@ -395,36 +391,93 @@ private struct ShareView: View {
             StatusBadge(state: meeting.state)
         }
         .padding(.horizontal, 22)
-        .padding(.vertical, 14)
+        .padding(.vertical, 11)
     }
 
     private var shareContent: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            HStack {
-                Label("You", systemImage: "mic.fill")
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
-
-                Spacer()
-
-                if meeting.state == .running {
-                    Text(meeting.localCaption.originalText.isEmpty ? "Waiting" : "Translating")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            CaptionTimeline(
+        VStack(alignment: .leading, spacing: 18) {
+            ShareCaptionTimeline(
                 history: meeting.localHistory,
                 current: meeting.localCaption,
-                translatedPlaceholder: "Your English translation will appear here…",
-                originalPlaceholder: "等待中文語音…",
-                primaryRole: .share,
-                originalLabel: "原文"
+                translatedPlaceholder: "Your English translation will appear here…"
             )
         }
-        .padding(28)
+        .padding(.horizontal, 30)
+        .padding(.vertical, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+private struct ShareCaptionTimeline: View {
+    let history: [MeetingCaption]
+    let current: MeetingCaption
+    let translatedPlaceholder: String
+
+    private var currentHasContent: Bool {
+        !current.translatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !current.originalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 26) {
+                    let visibleHistory = Array(history.suffix(currentHasContent ? 3 : 4))
+                    ForEach(Array(visibleHistory.enumerated()), id: \.element.id) { index, caption in
+                        let isLatest = !currentHasContent && index == visibleHistory.count - 1
+                        ShareTurn(caption: caption, isPrimary: isLatest)
+                    }
+
+                    if currentHasContent {
+                        ShareTurn(caption: current, isPrimary: true)
+                            .id("share-current-turn")
+                    } else if history.isEmpty {
+                        Text(translatedPlaceholder)
+                            .font(.system(size: 34, weight: .medium))
+                            .foregroundStyle(.tertiary)
+                            .id("share-current-turn")
+                    } else {
+                        Color.clear
+                            .frame(height: 1)
+                            .id("share-current-turn")
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, 12)
+            }
+            .onChange(of: history.count) { _, _ in
+                withAnimation(.easeOut(duration: 0.2)) {
+                    proxy.scrollTo("share-current-turn", anchor: .bottom)
+                }
+            }
+        }
+    }
+}
+
+private struct ShareTurn: View {
+    let caption: MeetingCaption
+    let isPrimary: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: isPrimary ? 12 : 7) {
+            if !caption.translatedText.isEmpty {
+                Text(caption.translatedText)
+                    .font(.system(size: isPrimary ? 38 : 22, weight: isPrimary ? .medium : .regular))
+                    .foregroundStyle(isPrimary ? .primary : .secondary)
+                    .lineSpacing(isPrimary ? 7 : 4)
+                    .textSelection(.enabled)
+            }
+
+            if !caption.originalText.isEmpty {
+                Text(caption.originalText)
+                    .font(.system(size: isPrimary ? 16 : 13))
+                    .foregroundStyle(isPrimary ? .secondary : .tertiary)
+                    .lineSpacing(3)
+                    .textSelection(.enabled)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .opacity(isPrimary ? 1 : 0.62)
     }
 }
 
