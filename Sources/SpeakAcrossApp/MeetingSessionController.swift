@@ -57,6 +57,12 @@ final class MeetingSessionController: ObservableObject {
     @Published private(set) var remoteHistory: [MeetingCaption] = []
     @Published private(set) var localHistory: [MeetingCaption] = []
     @Published private(set) var recoveryMessage: String?
+    @Published private(set) var inputDevices: [AudioDeviceInfo] = []
+    @Published private(set) var outputDevices: [AudioDeviceInfo] = []
+    @Published private(set) var audioDeviceError: String?
+    @Published private(set) var inputLevel: Double = 0
+    @Published var selectedInputUID: String = ""
+    @Published var selectedOutputUID: String = ""
     @Published var mode: TranslationMode = .accurate
 
     private var remoteFastSession: OpenAIRealtimeTranslationSession?
@@ -86,6 +92,53 @@ final class MeetingSessionController: ObservableObject {
            let mode = TranslationMode(rawValue: configured.lowercased()) {
             self.mode = mode
         }
+        let audioPreferences = AudioDevicePreferenceStore.load()
+        selectedInputUID = audioPreferences.inputUID ?? ""
+        selectedOutputUID = audioPreferences.outputUID ?? ""
+        refreshAudioDevices()
+    }
+
+    var selectedInputName: String {
+        guard !selectedInputUID.isEmpty else { return "System Default" }
+        return inputDevices.first(where: { $0.id == selectedInputUID })?.name ?? "Unavailable Device"
+    }
+
+    var selectedOutputName: String {
+        guard !selectedOutputUID.isEmpty else { return "System Default" }
+        return outputDevices.first(where: { $0.id == selectedOutputUID })?.name ?? "Unavailable Device"
+    }
+
+    func refreshAudioDevices() {
+        do {
+            let devices = try AudioDeviceCatalog.allDevices()
+            inputDevices = devices.filter(\.hasInput)
+            outputDevices = devices.filter(\.hasOutput)
+
+            if !selectedInputUID.isEmpty,
+               !inputDevices.contains(where: { $0.id == selectedInputUID }) {
+                selectedInputUID = ""
+            }
+            if !selectedOutputUID.isEmpty,
+               !outputDevices.contains(where: { $0.id == selectedOutputUID }) {
+                selectedOutputUID = ""
+            }
+            audioDeviceError = nil
+            saveAudioDevicePreferences()
+        } catch {
+            audioDeviceError = error.localizedDescription
+        }
+    }
+
+    func updateInputDevice(_ uid: String) {
+        guard state == .idle || isFailed else { return }
+        selectedInputUID = uid
+        saveAudioDevicePreferences()
+    }
+
+    func updateOutputDevice(_ uid: String) {
+        guard state == .idle || isFailed else { return }
+        selectedOutputUID = uid
+        saveAudioDevicePreferences()
     }
 
     func start(apiKey: String) async {
@@ -211,7 +264,15 @@ final class MeetingSessionController: ObservableObject {
             }
 
             let systemAudio = SystemAudioCapturer(onPCM16: remoteSink)
-            let microphone = MicrophoneCapturer(onPCM16: localSink)
+            let microphone = MicrophoneCapturer(
+                deviceUID: selectedInputUID.isEmpty ? nil : selectedInputUID,
+                onLevel: { [weak self] level in
+                    Task { @MainActor in
+                        self?.inputLevel = level
+                    }
+                },
+                onPCM16: localSink
+            )
 
             self.systemAudio = systemAudio
             self.microphone = microphone
@@ -564,6 +625,7 @@ final class MeetingSessionController: ObservableObject {
 
         microphone?.stop()
         microphone = nil
+        inputLevel = 0
 
         await systemAudio?.stop()
         systemAudio = nil
@@ -587,6 +649,20 @@ final class MeetingSessionController: ObservableObject {
         remoteAccurateSession = nil
         localAccurateSession = nil
         activeAPIKey = ""
+    }
+
+    private func saveAudioDevicePreferences() {
+        do {
+            try AudioDevicePreferenceStore.save(
+                AudioDevicePreferences(
+                    inputUID: selectedInputUID.isEmpty ? nil : selectedInputUID,
+                    outputUID: selectedOutputUID.isEmpty ? nil : selectedOutputUID
+                )
+            )
+            audioDeviceError = nil
+        } catch {
+            audioDeviceError = error.localizedDescription
+        }
     }
 
     private static let technicalKeywords = [

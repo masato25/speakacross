@@ -29,6 +29,7 @@ private struct MyView: View {
     @State private var hasAvailableKey = false
     @State private var keyError: String?
     @State private var showsConnection = false
+    @State private var showsAudio = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -154,6 +155,17 @@ private struct MyView: View {
                 Spacer()
 
                 Button {
+                    meeting.refreshAudioDevices()
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showsAudio.toggle()
+                    }
+                } label: {
+                    Label("Audio", systemImage: "waveform")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+
+                Button {
                     withAnimation(.easeInOut(duration: 0.15)) {
                         showsConnection.toggle()
                     }
@@ -169,6 +181,11 @@ private struct MyView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
+            }
+
+            if showsAudio {
+                audioPanel
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
 
             if showsConnection {
@@ -215,6 +232,99 @@ private struct MyView: View {
                     removeKey()
                 }
                 .disabled(meeting.state == .running)
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+    }
+
+    private var audioPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Audio Devices")
+                    .font(.headline)
+                Spacer()
+                Button {
+                    meeting.refreshAudioDevices()
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .disabled(meeting.state == .running || meeting.state.isBusy)
+            }
+
+            HStack(spacing: 12) {
+                Text("Microphone")
+                    .frame(width: 92, alignment: .leading)
+
+                Picker(
+                    "Microphone",
+                    selection: Binding(
+                        get: { meeting.selectedInputUID },
+                        set: { meeting.updateInputDevice($0) }
+                    )
+                ) {
+                    Text("System Default").tag("")
+                    ForEach(meeting.inputDevices) { device in
+                        Text(device.name).tag(device.id)
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: .infinity)
+                .disabled(meeting.state == .running || meeting.state.isBusy)
+            }
+
+            HStack(spacing: 12) {
+                Text("Input level")
+                    .frame(width: 92, alignment: .leading)
+
+                ProgressView(value: meeting.inputLevel, total: 1)
+                    .progressViewStyle(.linear)
+                    .frame(maxWidth: .infinity)
+
+                Text(meeting.inputLevel > 0.04 ? "Receiving" : "Silent")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(meeting.inputLevel > 0.04 ? .primary : .secondary)
+                    .frame(width: 64, alignment: .trailing)
+            }
+
+            HStack(spacing: 12) {
+                Text("AI Output")
+                    .frame(width: 92, alignment: .leading)
+
+                Picker(
+                    "AI Output",
+                    selection: Binding(
+                        get: { meeting.selectedOutputUID },
+                        set: { meeting.updateOutputDevice($0) }
+                    )
+                ) {
+                    Text("System Default").tag("")
+                    ForEach(meeting.outputDevices) { device in
+                        Text(device.name).tag(device.id)
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: .infinity)
+                .disabled(meeting.state == .running || meeting.state.isBusy)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Mic: \(meeting.selectedInputName)")
+                Text("AI playback: \(meeting.selectedOutputName)")
+                Text("Remote audio is captured from macOS system audio and does not use this output selector.")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+            if let audioDeviceError = meeting.audioDeviceError {
+                Text(audioDeviceError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
             }
         }
         .padding(12)

@@ -137,8 +137,16 @@ private final class E2EAudioIO: @unchecked Sendable {
     )!
     private var hardwarePlaybackFormat: AVAudioFormat?
     private var playbackConverter: AVAudioConverter?
+    private let inputDeviceUID: String?
+    private let outputDeviceUID: String?
 
-    init(onInputPCM: @escaping @Sendable (Data) -> Void) {
+    init(
+        inputDeviceUID: String?,
+        outputDeviceUID: String?,
+        onInputPCM: @escaping @Sendable (Data) -> Void
+    ) {
+        self.inputDeviceUID = inputDeviceUID
+        self.outputDeviceUID = outputDeviceUID
         self.onInputPCM = onInputPCM
     }
 
@@ -147,6 +155,9 @@ private final class E2EAudioIO: @unchecked Sendable {
             throw E2EError.microphoneDenied
         }
 
+        if let audioUnit = outputEngine.outputNode.audioUnit {
+            try AudioUnitDeviceRouting.selectDevice(uid: outputDeviceUID, for: audioUnit)
+        }
         outputEngine.attach(player)
         let hardwareFormat = outputEngine.mainMixerNode.outputFormat(forBus: 0)
         hardwarePlaybackFormat = hardwareFormat
@@ -157,6 +168,9 @@ private final class E2EAudioIO: @unchecked Sendable {
         player.play()
 
         let input = inputEngine.inputNode
+        if let audioUnit = input.audioUnit {
+            try AudioUnitDeviceRouting.selectDevice(uid: inputDeviceUID, for: audioUnit)
+        }
         let format = input.outputFormat(forBus: 0)
         input.installTap(onBus: 0, bufferSize: 2_048, format: format) { [encoder, onInputPCM] buffer, _ in
             let data = encoder.encode(buffer)
@@ -418,10 +432,22 @@ private struct SpeakAcrossE2EAgent {
             E2ELogger.reset()
             let apiKey = try APIKeyLoader.load()
             let agentModel = DotEnv.value(for: "SPEAKACROSS_AGENT_MODEL") ?? "gpt-realtime-2.1"
+            let audioPreferences = AudioDevicePreferenceStore.load()
             let agent = EnglishInterviewAgent(apiKey: apiKey, model: agentModel)
-            let audio = E2EAudioIO { [weak agent] pcm in
+            let audio = E2EAudioIO(
+                inputDeviceUID: audioPreferences.inputUID,
+                outputDeviceUID: audioPreferences.outputUID
+            ) { [weak agent] pcm in
                 agent?.appendInputPCM(pcm)
             }
+
+            let deviceNames = try? AudioDeviceCatalog.allDevices()
+            let inputName = deviceNames?.first(where: { $0.id == audioPreferences.inputUID })?.name
+                ?? "System Default Input"
+            let outputName = deviceNames?.first(where: { $0.id == audioPreferences.outputUID })?.name
+                ?? "System Default Output"
+            E2ELogger.write("[E2E] Input device: \(inputName)")
+            E2ELogger.write("[E2E] Output device: \(outputName)")
 
             agent.onAudio = { [weak audio] data in
                 audio?.playPCM16_24k(data)
