@@ -72,7 +72,7 @@ This is intentionally a **translation tool**, not an interview-answer generator 
 - API key storage in Apple Keychain
 - no SpeakAcross account required
 - no audio recording to disk by default
-- no persistent transcript history by default
+- local per-meeting Markdown transcript saved under `~/Documents/SpeakAcross/Transcripts/`
 - no analytics requirement
 - local silence gating in Fast mode to reduce idle API audio usage
 - session usage / estimated API cost display
@@ -147,7 +147,7 @@ SpeakAcross is built around a local-first application architecture.
 By default:
 
 - audio is not recorded to disk
-- transcripts are not persisted after the session
+- finalized meeting captions are saved locally as a Markdown transcript
 - there is no SpeakAcross account
 - there is no transcript backend
 - there is no analytics requirement
@@ -227,6 +227,26 @@ shell environment -> .env -> macOS Keychain
 The production UI can store the API key in Apple Keychain.
 
 The local `.env` file is ignored by Git and should never be committed.
+
+## Meeting transcripts
+
+Each **Start Meeting → Stop Meeting** session creates its own local Markdown transcript in:
+
+```text
+~/Documents/SpeakAcross/Transcripts/
+```
+
+The file includes:
+
+- meeting start/end time
+- translation mode
+- Listening language direction
+- Speaking language direction
+- finalized original transcript for each turn
+- finalized translation for each turn
+- relative timestamps for the conversation
+
+Raw audio is not written to the transcript directory. After stopping a meeting, **Open Transcripts** opens the folder in Finder.
 
 ## API usage and cost controls
 

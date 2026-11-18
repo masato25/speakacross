@@ -148,6 +148,8 @@ final class MeetingSessionController: ObservableObject {
     @Published private(set) var localTurnCount = 0
     @Published private(set) var accurateRealtimeCostUSD: Double = 0
     @Published private(set) var accurateTranscriptionCostUSD: Double = 0
+    @Published private(set) var lastTranscriptURL: URL?
+    @Published private(set) var transcriptError: String?
     @Published var selectedInputUID: String = ""
     @Published var selectedOutputUID: String = ""
     @Published var mode: TranslationMode = .accurate
@@ -186,6 +188,9 @@ final class MeetingSessionController: ObservableObject {
     private var activeListeningTargetLanguage: LanguageOption = .traditionalChinese
     private var activeSpeakingSourceLanguage: LanguageOption = .traditionalChinese
     private var activeSpeakingTargetLanguage: LanguageOption = .english
+    private var transcriptDocument: MeetingTranscriptDocument?
+    private var transcriptURL: URL?
+    private var recordedTranscriptCaptionIDs: Set<UUID> = []
 
     private static let fastTranslationUSDPerMinute = 0.034
     private static let fastTranscriptionUSDPerMinute = 0.017
@@ -488,6 +493,7 @@ final class MeetingSessionController: ObservableObject {
             try await systemAudio.start()
             try await microphone.start()
 
+            startTranscriptSession()
             state = .running
         } catch {
             await tearDown(abortSessions: true)
@@ -499,7 +505,12 @@ final class MeetingSessionController: ObservableObject {
         guard state == .running || state.isFailure else { return }
         state = .stopping
         await tearDown(abortSessions: false)
+        finishTranscriptSession()
         state = .idle
+    }
+
+    var transcriptDirectoryURL: URL {
+        Self.transcriptDirectoryURL
     }
 
     func clearCaptions() {
@@ -727,11 +738,17 @@ final class MeetingSessionController: ObservableObject {
         if mode == .fast {
             remoteTimeline.finalizeCurrent()
             localTimeline.finalizeCurrent()
+            recordTranscriptCaption(remoteTimeline.current)
+            recordTranscriptCaption(localTimeline.current)
             publishRemoteTurnState()
             publishLocalTurnState()
         } else {
-            remoteAccurateBuffer.finalizeCurrent()
-            localAccurateBuffer.finalizeCurrent()
+            if let caption = remoteAccurateBuffer.finalizeCurrent() {
+                recordTranscriptCaption(caption)
+            }
+            if let caption = localAccurateBuffer.finalizeCurrent() {
+                recordTranscriptCaption(caption)
+            }
             publishAccurateState(speaker: .remote)
             publishAccurateState(speaker: .local)
         }
@@ -795,12 +812,14 @@ final class MeetingSessionController: ObservableObject {
     private func finalizeAccurateTurn(speaker: MeetingSpeaker) {
         switch speaker {
         case .remote:
-            if remoteAccurateBuffer.finalizeCurrent() != nil {
+            if let caption = remoteAccurateBuffer.finalizeCurrent() {
                 remoteTurnCount += 1
+                recordTranscriptCaption(caption)
             }
         case .local:
-            if localAccurateBuffer.finalizeCurrent() != nil {
+            if let caption = localAccurateBuffer.finalizeCurrent() {
                 localTurnCount += 1
+                recordTranscriptCaption(caption)
             }
         }
         publishAccurateState(speaker: speaker)
@@ -834,11 +853,13 @@ final class MeetingSessionController: ObservableObject {
     private func publishRemoteTurnState() {
         remoteCaption = remoteTimeline.current
         remoteHistory = remoteTimeline.history
+        recordTranscriptCaptions(remoteHistory.filter(\.isFinal))
     }
 
     private func publishLocalTurnState() {
         localCaption = localTimeline.current
         localHistory = localTimeline.history
+        recordTranscriptCaptions(localHistory.filter(\.isFinal))
     }
 
     private func tearDown(abortSessions: Bool) async {
@@ -850,11 +871,17 @@ final class MeetingSessionController: ObservableObject {
         if mode == .fast {
             remoteTimeline.finalizeCurrent()
             localTimeline.finalizeCurrent()
+            recordTranscriptCaption(remoteTimeline.current)
+            recordTranscriptCaption(localTimeline.current)
             publishRemoteTurnState()
             publishLocalTurnState()
         } else {
-            remoteAccurateBuffer.finalizeCurrent()
-            localAccurateBuffer.finalizeCurrent()
+            if let caption = remoteAccurateBuffer.finalizeCurrent() {
+                recordTranscriptCaption(caption)
+            }
+            if let caption = localAccurateBuffer.finalizeCurrent() {
+                recordTranscriptCaption(caption)
+            }
             publishAccurateState(speaker: .remote)
             publishAccurateState(speaker: .local)
         }
@@ -886,6 +913,90 @@ final class MeetingSessionController: ObservableObject {
         remoteAccurateSession = nil
         localAccurateSession = nil
         activeAPIKey = ""
+    }
+
+    private static var transcriptDirectoryURL: URL {
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents", isDirectory: true)
+        return documents
+            .appendingPathComponent("SpeakAcross", isDirectory: true)
+            .appendingPathComponent("Transcripts", isDirectory: true)
+    }
+
+    private func startTranscriptSession() {
+        let startedAt = Date()
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
+
+        let directory = Self.transcriptDirectoryURL
+        let url = directory.appendingPathComponent("SpeakAcross-\(formatter.string(from: startedAt)).md")
+
+        transcriptDocument = MeetingTranscriptDocument(
+            startedAt: startedAt,
+            mode: mode.label,
+            listeningRoute: "\(activeListeningSourceLanguage.label) → \(activeListeningTargetLanguage.label)",
+            speakingRoute: "\(activeSpeakingSourceLanguage.label) → \(activeSpeakingTargetLanguage.label)"
+        )
+        transcriptURL = url
+        recordedTranscriptCaptionIDs.removeAll(keepingCapacity: true)
+        transcriptError = nil
+        lastTranscriptURL = nil
+        persistTranscript()
+    }
+
+    private func finishTranscriptSession() {
+        guard transcriptDocument != nil else { return }
+        transcriptDocument?.endedAt = Date()
+        persistTranscript()
+        lastTranscriptURL = transcriptURL
+        transcriptDocument = nil
+        transcriptURL = nil
+        recordedTranscriptCaptionIDs.removeAll(keepingCapacity: false)
+    }
+
+    private func recordTranscriptCaptions(_ captions: [MeetingCaption]) {
+        for caption in captions {
+            recordTranscriptCaption(caption, persist: false)
+        }
+        persistTranscript()
+    }
+
+    private func recordTranscriptCaption(_ caption: MeetingCaption, persist: Bool = true) {
+        guard transcriptDocument != nil,
+              caption.isFinal,
+              !recordedTranscriptCaptionIDs.contains(caption.id) else {
+            return
+        }
+
+        let hasContent = !caption.originalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || !caption.translatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard hasContent else { return }
+
+        recordedTranscriptCaptionIDs.insert(caption.id)
+        transcriptDocument?.entries.append(MeetingTranscriptEntry(caption: caption))
+        if persist {
+            persistTranscript()
+        }
+    }
+
+    private func persistTranscript() {
+        guard let transcriptDocument, let transcriptURL else { return }
+
+        do {
+            try FileManager.default.createDirectory(
+                at: Self.transcriptDirectoryURL,
+                withIntermediateDirectories: true
+            )
+            try transcriptDocument.markdown().write(
+                to: transcriptURL,
+                atomically: true,
+                encoding: .utf8
+            )
+            transcriptError = nil
+        } catch {
+            transcriptError = error.localizedDescription
+        }
     }
 
     private func saveAudioDevicePreferences() {

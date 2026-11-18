@@ -199,6 +199,16 @@ private struct MyView: View {
                     meeting.clearCaptions()
                 }
 
+                if meeting.lastTranscriptURL != nil {
+                    Button {
+                        NSWorkspace.shared.open(meeting.transcriptDirectoryURL)
+                    } label: {
+                        Label("Open Transcripts", systemImage: "doc.text")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                }
+
                 Button {
                     showsSettings = true
                 } label: {
@@ -260,6 +270,18 @@ private struct MyView: View {
                 Text(message)
                     .font(.caption)
                     .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if let transcriptError = meeting.transcriptError {
+                Text("Transcript: \(transcriptError)")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else if meeting.lastTranscriptURL != nil, meeting.state == .idle {
+                Text("Transcript saved to Documents/SpeakAcross/Transcripts")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }

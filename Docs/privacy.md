@@ -16,7 +16,11 @@ OpenAI API keys should be stored in Apple Keychain and must not be committed to 
 
 ## Storage
 
-The MVP should not persist raw meeting audio, microphone audio, transcripts, or translations unless the user explicitly chooses to export them in a future version.
+SpeakAcross does not persist raw meeting audio or microphone audio.
+
+When a meeting session is started, SpeakAcross creates a local Markdown transcript for that session and updates it as finalized caption turns arrive. When the meeting is stopped, the transcript is finalized in `~/Documents/SpeakAcross/Transcripts/`.
+
+The transcript contains the session time, configured language directions, original speech transcripts, and translations. It stays on the user's Mac and is not uploaded to a SpeakAcross backend.
 
 ## Accounts and analytics
 
