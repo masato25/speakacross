@@ -559,6 +559,31 @@ private struct LanguageSettingsView: View {
                 )
             )
 
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Subtitle pacing")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Picker(
+                    "Subtitle pacing",
+                    selection: Binding(
+                        get: { meeting.listeningSegmentation },
+                        set: { meeting.updateListeningSegmentation($0) }
+                    )
+                ) {
+                    ForEach(MeetingSessionController.ListeningSegmentation.allCases) { option in
+                        Text(option.label).tag(option)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .disabled(meeting.state == .running || meeting.state.isBusy)
+
+                Text(meeting.listeningSegmentation.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 16)
+
             languageDirectionSection(
                 title: "Speaking",
                 subtitle: "your microphone / Share View",
@@ -582,7 +607,7 @@ private struct LanguageSettingsView: View {
             Spacer(minLength: 0)
         }
         .padding(24)
-        .frame(width: 560, height: 390)
+        .frame(width: 560, height: 470)
     }
 
     @ViewBuilder

@@ -3,6 +3,38 @@ import SpeakAcrossCore
 
 @MainActor
 final class MeetingSessionController: ObservableObject {
+    enum ListeningSegmentation: String, CaseIterable, Identifiable {
+        case quick
+        case balanced
+        case natural
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .quick: "Quick"
+            case .balanced: "Balanced"
+            case .natural: "Natural"
+            }
+        }
+
+        var silenceMilliseconds: Int {
+            switch self {
+            case .quick: 700
+            case .balanced: 900
+            case .natural: 1_200
+            }
+        }
+
+        var detail: String {
+            switch self {
+            case .quick: "Cuts sooner for faster subtitle updates."
+            case .balanced: "Recommended for meetings and continuous speech."
+            case .natural: "Waits longer for more complete sentences."
+            }
+        }
+    }
+
     enum LanguageOption: String, CaseIterable, Identifiable {
         case english
         case traditionalChinese
@@ -123,6 +155,7 @@ final class MeetingSessionController: ObservableObject {
     @Published private(set) var listeningTargetLanguage: LanguageOption = .traditionalChinese
     @Published private(set) var speakingSourceLanguage: LanguageOption = .traditionalChinese
     @Published private(set) var speakingTargetLanguage: LanguageOption = .english
+    @Published private(set) var listeningSegmentation: ListeningSegmentation = .balanced
 
     private var remoteFastSession: OpenAIRealtimeTranslationSession?
     private var localFastSession: OpenAIRealtimeTranslationSession?
@@ -144,7 +177,8 @@ final class MeetingSessionController: ObservableObject {
     private var activeTranslationModel = "gpt-realtime-translate"
     private var activeTranscriptionModel = "gpt-live-transcribe"
     private var activeAccurateModel = "gpt-realtime-2.1"
-    private var activeAccurateVADSilenceMilliseconds = 1_200
+    private var activeListeningVADSilenceMilliseconds = 900
+    private var activeSpeakingVADSilenceMilliseconds = 1_200
     private var activeFastGateThresholdDecibels = -48.0
     private var activeFastGatePreRollMilliseconds = 250
     private var activeFastGateHangoverMilliseconds = 700
@@ -203,6 +237,12 @@ final class MeetingSessionController: ObservableObject {
     func updateSpeakingTargetLanguage(_ language: LanguageOption) {
         guard state == .idle || isFailed else { return }
         speakingTargetLanguage = language
+        saveLanguagePreferences()
+    }
+
+    func updateListeningSegmentation(_ segmentation: ListeningSegmentation) {
+        guard state == .idle || isFailed else { return }
+        listeningSegmentation = segmentation
         saveLanguagePreferences()
     }
 
@@ -298,13 +338,20 @@ final class MeetingSessionController: ObservableObject {
             ?? "gpt-live-transcribe"
         let accurateModel = DotEnv.value(for: "SPEAKACROSS_ACCURATE_MODEL")
             ?? "gpt-realtime-2.1"
-        let accurateVADSilenceMilliseconds = Int(
+        let fallbackAccurateVADSilenceMilliseconds = Int(
             DotEnv.value(for: "SPEAKACROSS_ACCURATE_VAD_SILENCE_MS") ?? ""
-        ) ?? 1_200
+        )
+        let listeningVADSilenceMilliseconds = Int(
+            DotEnv.value(for: "SPEAKACROSS_LISTENING_VAD_SILENCE_MS") ?? ""
+        ) ?? fallbackAccurateVADSilenceMilliseconds ?? listeningSegmentation.silenceMilliseconds
+        let speakingVADSilenceMilliseconds = Int(
+            DotEnv.value(for: "SPEAKACROSS_SPEAKING_VAD_SILENCE_MS") ?? ""
+        ) ?? fallbackAccurateVADSilenceMilliseconds ?? 1_200
         activeTranslationModel = translationModel
         activeTranscriptionModel = transcriptionModel
         activeAccurateModel = accurateModel
-        activeAccurateVADSilenceMilliseconds = accurateVADSilenceMilliseconds
+        activeListeningVADSilenceMilliseconds = listeningVADSilenceMilliseconds
+        activeSpeakingVADSilenceMilliseconds = speakingVADSilenceMilliseconds
         activeFastGateThresholdDecibels = Double(
             DotEnv.value(for: "SPEAKACROSS_FAST_GATE_DBFS") ?? ""
         ) ?? -48
@@ -385,7 +432,7 @@ final class MeetingSessionController: ObservableObject {
                     transcriptionLanguages: activeListeningSourceLanguage.transcriptionLanguages,
                     normalizeOriginalTraditionalChinese: activeListeningSourceLanguage.shouldNormalizeTraditionalChinese,
                     normalizeTranslationTraditionalChinese: activeListeningTargetLanguage.shouldNormalizeTraditionalChinese,
-                    vadSilenceDurationMilliseconds: accurateVADSilenceMilliseconds
+                    vadSilenceDurationMilliseconds: activeListeningVADSilenceMilliseconds
                 )
                 let local = OpenAIRealtimeInterpreterSession(
                     apiKey: key,
@@ -397,7 +444,7 @@ final class MeetingSessionController: ObservableObject {
                     transcriptionLanguages: activeSpeakingSourceLanguage.transcriptionLanguages,
                     normalizeOriginalTraditionalChinese: activeSpeakingSourceLanguage.shouldNormalizeTraditionalChinese,
                     normalizeTranslationTraditionalChinese: activeSpeakingTargetLanguage.shouldNormalizeTraditionalChinese,
-                    vadSilenceDurationMilliseconds: accurateVADSilenceMilliseconds
+                    vadSilenceDurationMilliseconds: activeSpeakingVADSilenceMilliseconds
                 )
 
                 wireAccurate(remote, speaker: .remote)
@@ -651,7 +698,7 @@ final class MeetingSessionController: ObservableObject {
                 transcriptionLanguages: activeListeningSourceLanguage.transcriptionLanguages,
                 normalizeOriginalTraditionalChinese: activeListeningSourceLanguage.shouldNormalizeTraditionalChinese,
                 normalizeTranslationTraditionalChinese: activeListeningTargetLanguage.shouldNormalizeTraditionalChinese,
-                vadSilenceDurationMilliseconds: activeAccurateVADSilenceMilliseconds
+                vadSilenceDurationMilliseconds: activeListeningVADSilenceMilliseconds
             )
             let local = OpenAIRealtimeInterpreterSession(
                 apiKey: activeAPIKey,
@@ -663,7 +710,7 @@ final class MeetingSessionController: ObservableObject {
                 transcriptionLanguages: activeSpeakingSourceLanguage.transcriptionLanguages,
                 normalizeOriginalTraditionalChinese: activeSpeakingSourceLanguage.shouldNormalizeTraditionalChinese,
                 normalizeTranslationTraditionalChinese: activeSpeakingTargetLanguage.shouldNormalizeTraditionalChinese,
-                vadSilenceDurationMilliseconds: activeAccurateVADSilenceMilliseconds
+                vadSilenceDurationMilliseconds: activeSpeakingVADSilenceMilliseconds
             )
             wireAccurate(remote, speaker: .remote) { readiness.markRemoteReady() }
             wireAccurate(local, speaker: .local) { readiness.markLocalReady() }
@@ -873,6 +920,10 @@ final class MeetingSessionController: ObservableObject {
            let language = LanguageOption(rawValue: raw) {
             speakingTargetLanguage = language
         }
+        if let raw = defaults.string(forKey: "SpeakAcross.listeningSegmentation"),
+           let segmentation = ListeningSegmentation(rawValue: raw) {
+            listeningSegmentation = segmentation
+        }
     }
 
     private func saveLanguagePreferences() {
@@ -881,6 +932,7 @@ final class MeetingSessionController: ObservableObject {
         defaults.set(listeningTargetLanguage.rawValue, forKey: "SpeakAcross.listeningTargetLanguage")
         defaults.set(speakingSourceLanguage.rawValue, forKey: "SpeakAcross.speakingSourceLanguage")
         defaults.set(speakingTargetLanguage.rawValue, forKey: "SpeakAcross.speakingTargetLanguage")
+        defaults.set(listeningSegmentation.rawValue, forKey: "SpeakAcross.listeningSegmentation")
     }
 
     private func makeFastSilenceGate() -> PCM16SilenceGate {
