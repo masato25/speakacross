@@ -3,6 +3,7 @@ set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 cd "$ROOT"
+. "$ROOT/Scripts/require-paid-e2e.sh"
 
 REPEAT="${SPEAKACROSS_SOAK_REPEAT:-10}"
 

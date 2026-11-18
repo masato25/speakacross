@@ -61,6 +61,12 @@ final class MeetingSessionController: ObservableObject {
     @Published private(set) var outputDevices: [AudioDeviceInfo] = []
     @Published private(set) var audioDeviceError: String?
     @Published private(set) var inputLevel: Double = 0
+    @Published private(set) var remoteAudioSentSeconds: Double = 0
+    @Published private(set) var localAudioSentSeconds: Double = 0
+    @Published private(set) var remoteTurnCount = 0
+    @Published private(set) var localTurnCount = 0
+    @Published private(set) var accurateRealtimeCostUSD: Double = 0
+    @Published private(set) var accurateTranscriptionCostUSD: Double = 0
     @Published var selectedInputUID: String = ""
     @Published var selectedOutputUID: String = ""
     @Published var mode: TranslationMode = .accurate
@@ -86,6 +92,18 @@ final class MeetingSessionController: ObservableObject {
     private var activeTranscriptionModel = "gpt-live-transcribe"
     private var activeAccurateModel = "gpt-realtime-2.1"
     private var activeAccurateVADSilenceMilliseconds = 1_200
+    private var activeFastGateThresholdDecibels = -48.0
+    private var activeFastGatePreRollMilliseconds = 250
+    private var activeFastGateHangoverMilliseconds = 700
+
+    private static let fastTranslationUSDPerMinute = 0.034
+    private static let fastTranscriptionUSDPerMinute = 0.017
+    private static let accurateInputAudioUSDPerMillion = 32.0
+    private static let accurateInputTextUSDPerMillion = 4.0
+    private static let accurateCachedInputUSDPerMillion = 0.40
+    private static let accurateOutputAudioUSDPerMillion = 64.0
+    private static let accurateOutputTextUSDPerMillion = 24.0
+    private static let accurateTranscriptionUSDPerMinute = 0.017
 
     init() {
         if let configured = DotEnv.value(for: "SPEAKACROSS_DEFAULT_MODE"),
@@ -106,6 +124,32 @@ final class MeetingSessionController: ObservableObject {
     var selectedOutputName: String {
         guard !selectedOutputUID.isEmpty else { return "System Default" }
         return outputDevices.first(where: { $0.id == selectedOutputUID })?.name ?? "Unavailable Device"
+    }
+
+    var totalAudioSentSeconds: Double {
+        remoteAudioSentSeconds + localAudioSentSeconds
+    }
+
+    var estimatedFastCostUSD: Double {
+        guard mode == .fast, canEstimateFastCost else { return 0 }
+        return totalAudioSentSeconds / 60
+            * (Self.fastTranslationUSDPerMinute + Self.fastTranscriptionUSDPerMinute)
+    }
+
+    var canEstimateFastCost: Bool {
+        guard activeTranslationModel == "gpt-realtime-translate" else { return false }
+        return activeTranscriptionModel == "gpt-live-transcribe"
+            || activeTranscriptionModel == "gpt-realtime-whisper"
+    }
+
+    var estimatedAccurateCostUSD: Double {
+        accurateRealtimeCostUSD + accurateTranscriptionCostUSD
+    }
+
+    var canEstimateAccurateCost: Bool {
+        guard activeAccurateModel == "gpt-realtime-2.1" else { return false }
+        return activeTranscriptionModel == "gpt-live-transcribe"
+            || activeTranscriptionModel == "gpt-realtime-whisper"
     }
 
     func refreshAudioDevices() {
@@ -152,6 +196,7 @@ final class MeetingSessionController: ObservableObject {
 
         state = .starting
         resetCaptions()
+        resetSessionUsage()
         recoveryMessage = nil
         recoveryAttempt = 0
         pendingRecoveryError = nil
@@ -170,6 +215,15 @@ final class MeetingSessionController: ObservableObject {
         activeTranscriptionModel = transcriptionModel
         activeAccurateModel = accurateModel
         activeAccurateVADSilenceMilliseconds = accurateVADSilenceMilliseconds
+        activeFastGateThresholdDecibels = Double(
+            DotEnv.value(for: "SPEAKACROSS_FAST_GATE_DBFS") ?? ""
+        ) ?? -48
+        activeFastGatePreRollMilliseconds = Int(
+            DotEnv.value(for: "SPEAKACROSS_FAST_GATE_PREROLL_MS") ?? ""
+        ) ?? 250
+        activeFastGateHangoverMilliseconds = Int(
+            DotEnv.value(for: "SPEAKACROSS_FAST_GATE_HANGOVER_MS") ?? ""
+        ) ?? 700
 
         do {
             let remoteSink: @Sendable (Data) -> Void
@@ -182,14 +236,16 @@ final class MeetingSessionController: ObservableObject {
                     targetLanguage: "zh",
                     model: translationModel,
                     transcriptionModel: transcriptionModel,
-                    normalizeTraditionalChinese: true
+                    normalizeTraditionalChinese: true,
+                    silenceGate: makeFastSilenceGate()
                 )
                 let local = OpenAIRealtimeTranslationSession(
                     apiKey: key,
                     targetLanguage: "en",
                     model: translationModel,
                     transcriptionModel: transcriptionModel,
-                    normalizeOriginalTraditionalChinese: true
+                    normalizeOriginalTraditionalChinese: true,
+                    silenceGate: makeFastSilenceGate()
                 )
 
                 wireFast(remote, speaker: .remote)
@@ -321,6 +377,12 @@ final class MeetingSessionController: ObservableObject {
             }
         }
 
+        session.onAudioAccepted = { [weak self] byteCount in
+            Task { @MainActor in
+                self?.recordAudioAccepted(byteCount: byteCount, speaker: speaker)
+            }
+        }
+
         session.onError = { [weak self] error in
             Task { @MainActor in
                 self?.handleSessionFailure(error)
@@ -349,6 +411,18 @@ final class MeetingSessionController: ObservableObject {
         session.onTurnCompleted = { [weak self] in
             Task { @MainActor in
                 self?.finalizeAccurateTurn(speaker: speaker)
+            }
+        }
+
+        session.onResponseUsage = { [weak self] usage in
+            Task { @MainActor in
+                self?.recordAccurateResponseUsage(usage)
+            }
+        }
+
+        session.onTranscriptionDuration = { [weak self] seconds in
+            Task { @MainActor in
+                self?.recordAccurateTranscriptionDuration(seconds)
             }
         }
 
@@ -438,14 +512,16 @@ final class MeetingSessionController: ObservableObject {
                 targetLanguage: "zh",
                 model: activeTranslationModel,
                 transcriptionModel: activeTranscriptionModel,
-                normalizeTraditionalChinese: true
+                normalizeTraditionalChinese: true,
+                silenceGate: makeFastSilenceGate()
             )
             let local = OpenAIRealtimeTranslationSession(
                 apiKey: activeAPIKey,
                 targetLanguage: "en",
                 model: activeTranslationModel,
                 transcriptionModel: activeTranscriptionModel,
-                normalizeOriginalTraditionalChinese: true
+                normalizeOriginalTraditionalChinese: true,
+                silenceGate: makeFastSilenceGate()
             )
             wireFast(remote, speaker: .remote) { readiness.markRemoteReady() }
             wireFast(local, speaker: .local) { readiness.markLocalReady() }
@@ -563,9 +639,13 @@ final class MeetingSessionController: ObservableObject {
     private func finalizeAccurateTurn(speaker: MeetingSpeaker) {
         switch speaker {
         case .remote:
-            remoteAccurateBuffer.finalizeCurrent()
+            if remoteAccurateBuffer.finalizeCurrent() != nil {
+                remoteTurnCount += 1
+            }
         case .local:
-            localAccurateBuffer.finalizeCurrent()
+            if localAccurateBuffer.finalizeCurrent() != nil {
+                localTurnCount += 1
+            }
         }
         publishAccurateState(speaker: speaker)
     }
@@ -663,6 +743,62 @@ final class MeetingSessionController: ObservableObject {
         } catch {
             audioDeviceError = error.localizedDescription
         }
+    }
+
+    private func makeFastSilenceGate() -> PCM16SilenceGate {
+        PCM16SilenceGate(
+            thresholdDecibels: activeFastGateThresholdDecibels,
+            preRollMilliseconds: activeFastGatePreRollMilliseconds,
+            hangoverMilliseconds: activeFastGateHangoverMilliseconds
+        )
+    }
+
+    private func recordAudioAccepted(byteCount: Int, speaker: MeetingSpeaker) {
+        let seconds = Double(byteCount) / (24_000 * Double(MemoryLayout<Int16>.size))
+        switch speaker {
+        case .remote:
+            remoteAudioSentSeconds += seconds
+        case .local:
+            localAudioSentSeconds += seconds
+        }
+    }
+
+    private func resetSessionUsage() {
+        remoteAudioSentSeconds = 0
+        localAudioSentSeconds = 0
+        remoteTurnCount = 0
+        localTurnCount = 0
+        accurateRealtimeCostUSD = 0
+        accurateTranscriptionCostUSD = 0
+    }
+
+    private func recordAccurateResponseUsage(_ usage: RealtimeInterpreterResponseUsage) {
+        guard canEstimateAccurateCost else { return }
+
+        let cachedAudio = min(usage.inputAudioTokens, usage.cachedAudioTokens)
+        let cachedText = min(usage.inputTextTokens, usage.cachedTextTokens)
+        let uncachedAudio = max(0, usage.inputAudioTokens - cachedAudio)
+        let uncachedText = max(0, usage.inputTextTokens - cachedText)
+        let knownInput = usage.inputAudioTokens + usage.inputTextTokens
+        let unknownInput = max(0, usage.inputTokens - knownInput)
+        let knownCached = cachedAudio + cachedText
+        let unknownCached = max(0, usage.cachedInputTokens - knownCached)
+        let uncachedUnknown = max(0, unknownInput - unknownCached)
+
+        let knownOutput = usage.outputAudioTokens + usage.outputTextTokens
+        let unknownOutput = max(0, usage.outputTokens - knownOutput)
+
+        accurateRealtimeCostUSD +=
+            Double(uncachedAudio) / 1_000_000 * Self.accurateInputAudioUSDPerMillion
+            + Double(uncachedText + uncachedUnknown) / 1_000_000 * Self.accurateInputTextUSDPerMillion
+            + Double(usage.cachedInputTokens) / 1_000_000 * Self.accurateCachedInputUSDPerMillion
+            + Double(usage.outputAudioTokens) / 1_000_000 * Self.accurateOutputAudioUSDPerMillion
+            + Double(usage.outputTextTokens + unknownOutput) / 1_000_000 * Self.accurateOutputTextUSDPerMillion
+    }
+
+    private func recordAccurateTranscriptionDuration(_ seconds: Double) {
+        guard canEstimateAccurateCost else { return }
+        accurateTranscriptionCostUSD += seconds / 60 * Self.accurateTranscriptionUSDPerMinute
     }
 
     private static let technicalKeywords = [

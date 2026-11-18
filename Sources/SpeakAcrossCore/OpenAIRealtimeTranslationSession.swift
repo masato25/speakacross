@@ -30,6 +30,7 @@ public final class OpenAIRealtimeTranslationSession: NSObject, URLSessionWebSock
     public var onTranslationDelta: (@Sendable (String) -> Void)?
     public var onOriginalTranscriptDelta: (@Sendable (RealtimeTranscriptDelta) -> Void)?
     public var onTranslationTranscriptDelta: (@Sendable (RealtimeTranscriptDelta) -> Void)?
+    public var onAudioAccepted: (@Sendable (Int) -> Void)?
     public var onError: (@Sendable (Error) -> Void)?
     public var onClosed: (@Sendable () -> Void)?
 
@@ -39,6 +40,7 @@ public final class OpenAIRealtimeTranslationSession: NSObject, URLSessionWebSock
     private let transcriptionModel: String
     private let normalizeOriginalTraditionalChinese: Bool
     private let normalizeTraditionalChinese: Bool
+    private let silenceGate: PCM16SilenceGate?
 
     private var urlSession: URLSession?
     private var webSocket: URLSessionWebSocketTask?
@@ -55,7 +57,8 @@ public final class OpenAIRealtimeTranslationSession: NSObject, URLSessionWebSock
         model: String = "gpt-realtime-translate",
         transcriptionModel: String = "gpt-live-transcribe",
         normalizeOriginalTraditionalChinese: Bool = false,
-        normalizeTraditionalChinese: Bool = false
+        normalizeTraditionalChinese: Bool = false,
+        silenceGate: PCM16SilenceGate? = nil
     ) {
         self.apiKey = apiKey
         self.targetLanguage = targetLanguage
@@ -63,6 +66,7 @@ public final class OpenAIRealtimeTranslationSession: NSObject, URLSessionWebSock
         self.transcriptionModel = transcriptionModel
         self.normalizeOriginalTraditionalChinese = normalizeOriginalTraditionalChinese
         self.normalizeTraditionalChinese = normalizeTraditionalChinese
+        self.silenceGate = silenceGate
         super.init()
     }
 
@@ -101,12 +105,19 @@ public final class OpenAIRealtimeTranslationSession: NSObject, URLSessionWebSock
 
         sendQueue.async { [weak self] in
             guard let self, !self.closeRequested else { return }
-            self.pendingAudio.append(data)
+            let chunks = self.silenceGate?.process(data) ?? [data]
+            let acceptedByteCount = chunks.reduce(0) { $0 + $1.count }
+            if acceptedByteCount > 0 {
+                self.onAudioAccepted?(acceptedByteCount)
+            }
+            for gatedChunk in chunks {
+                self.pendingAudio.append(gatedChunk)
 
-            while self.pendingAudio.count >= self.preferredChunkBytes {
-                let chunk = self.pendingAudio.prefix(self.preferredChunkBytes)
-                self.pendingAudio.removeFirst(self.preferredChunkBytes)
-                self.sendAudioChunk(Data(chunk))
+                while self.pendingAudio.count >= self.preferredChunkBytes {
+                    let chunk = self.pendingAudio.prefix(self.preferredChunkBytes)
+                    self.pendingAudio.removeFirst(self.preferredChunkBytes)
+                    self.sendAudioChunk(Data(chunk))
+                }
             }
         }
     }
@@ -237,7 +248,8 @@ public final class OpenAIRealtimeTranslationSession: NSObject, URLSessionWebSock
                     : delta
                 let event = RealtimeTranscriptDelta(
                     text: normalized,
-                    elapsedMilliseconds: object["elapsed_ms"] as? Int
+                    elapsedMilliseconds: silenceGate?.mapElapsedMilliseconds(object["elapsed_ms"] as? Int)
+                        ?? object["elapsed_ms"] as? Int
                 )
                 onOriginalDelta?(normalized)
                 onOriginalTranscriptDelta?(event)
@@ -250,7 +262,8 @@ public final class OpenAIRealtimeTranslationSession: NSObject, URLSessionWebSock
                     : delta
                 let event = RealtimeTranscriptDelta(
                     text: normalized,
-                    elapsedMilliseconds: object["elapsed_ms"] as? Int
+                    elapsedMilliseconds: silenceGate?.mapElapsedMilliseconds(object["elapsed_ms"] as? Int)
+                        ?? object["elapsed_ms"] as? Int
                 )
                 onTranslationDelta?(normalized)
                 onTranslationTranscriptDelta?(event)

@@ -133,7 +133,13 @@ SPEAKACROSS_TRANSCRIPTION_MODEL=gpt-live-transcribe
 SPEAKACROSS_AGENT_MODEL=gpt-realtime-2.1
 SPEAKACROSS_ACCURATE_MODEL=gpt-realtime-2.1
 SPEAKACROSS_DEFAULT_MODE=accurate
+SPEAKACROSS_ACCURATE_VAD_SILENCE_MS=1200
+SPEAKACROSS_FAST_GATE_DBFS=-48
+SPEAKACROSS_FAST_GATE_PREROLL_MS=250
+SPEAKACROSS_FAST_GATE_HANGOVER_MS=700
 ```
+
+Fast mode applies a local PCM silence gate before audio is sent to the duration-billed translation and transcription APIs. The defaults keep a short pre-roll and hangover so speech edges are preserved while long idle periods are skipped.
 
 You can also point to a different file with `SPEAKACROSS_ENV_FILE=/path/to/file`.
 
@@ -159,7 +165,7 @@ See Docs/e2e-testing.md.
 For repeatable development regression, SpeakAcross also includes a fully autonomous AI-to-AI test. An English Realtime agent and a Traditional Chinese Realtime agent talk to each other using real PCM audio while the production SpeakAcross translation client validates both translation directions and turn segmentation.
 
 ```sh
-./Scripts/run-full-e2e.sh
+SPEAKACROSS_ALLOW_PAID_E2E=1 ./Scripts/run-full-e2e.sh
 ```
 
 See [Docs/full-e2e.md](Docs/full-e2e.md).
@@ -169,13 +175,13 @@ See [Docs/full-e2e.md](Docs/full-e2e.md).
 To check translation meaning rather than only transport and segmentation, run the fixed technical golden set:
 
 ```sh
-./Scripts/run-golden-e2e.sh
+SPEAKACROSS_ALLOW_PAID_E2E=1 ./Scripts/run-golden-e2e.sh
 ```
 
 For the production Accurate path, including automatic server VAD:
 
 ```sh
-./Scripts/run-accurate-vad-e2e.sh
+SPEAKACROSS_ALLOW_PAID_E2E=1 ./Scripts/run-accurate-vad-e2e.sh
 ```
 
 The golden tests cover technical terminology, numeric fidelity, source-ASR fidelity, Traditional Chinese output, and semantic correctness with a structured judge. See [Docs/golden-e2e.md](Docs/golden-e2e.md).
@@ -183,8 +189,10 @@ The golden tests cover technical terminology, numeric fidelity, source-ASR fidel
 For long-lived Accurate-session validation:
 
 ```sh
-SPEAKACROSS_SOAK_REPEAT=10 ./Scripts/run-soak.sh
+SPEAKACROSS_ALLOW_PAID_E2E=1 SPEAKACROSS_SOAK_REPEAT=10 ./Scripts/run-soak.sh
 ```
+
+These automated E2E scripts use real OpenAI audio APIs and refuse to run unless the paid-test acknowledgement is set explicitly.
 
 ## Status
 

@@ -1,29 +1,66 @@
+import AppKit
 import SwiftUI
 import SpeakAcrossCore
 
+private final class SpeakAcrossAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldSaveApplicationState(_ app: NSApplication) -> Bool {
+        false
+    }
+
+    func applicationShouldRestoreApplicationState(_ app: NSApplication) -> Bool {
+        false
+    }
+}
+
+@MainActor
+private final class ShareWindowCoordinator {
+    static let shared = ShareWindowCoordinator()
+
+    private var window: NSWindow?
+
+    func show(meeting: MeetingSessionController) {
+        if let window {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let rootView = ShareView(meeting: meeting)
+            .frame(minWidth: 640, minHeight: 420)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 840, height: 520),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "SpeakAcross Share View"
+        window.contentView = NSHostingView(rootView: rootView)
+        window.isReleasedWhenClosed = false
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        self.window = window
+        NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
 @main
 struct SpeakAcrossApp: App {
+    @NSApplicationDelegateAdaptor(SpeakAcrossAppDelegate.self) private var appDelegate
     @StateObject private var meeting = MeetingSessionController()
 
     var body: some Scene {
-        WindowGroup("SpeakAcross") {
+        WindowGroup("SpeakAcross", id: "main-view") {
             MyView(meeting: meeting)
                 .frame(minWidth: 760, minHeight: 560)
         }
         .defaultSize(width: 900, height: 680)
-
-        Window("SpeakAcross Share View", id: "share-view") {
-            ShareView(meeting: meeting)
-                .frame(minWidth: 640, minHeight: 420)
-        }
-        .defaultSize(width: 840, height: 520)
     }
 }
 
 @MainActor
 private struct MyView: View {
     @ObservedObject var meeting: MeetingSessionController
-    @Environment(\.openWindow) private var openWindow
 
     @State private var apiKey = ""
     @State private var hasAvailableKey = false
@@ -143,7 +180,7 @@ private struct MyView: View {
                 }
 
                 Button {
-                    openWindow(id: "share-view")
+                    ShareWindowCoordinator.shared.show(meeting: meeting)
                 } label: {
                     Label("Open Share View", systemImage: "rectangle.on.rectangle")
                 }
@@ -181,6 +218,7 @@ private struct MyView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
+                sessionUsageSummary
             }
 
             if showsAudio {
@@ -209,6 +247,42 @@ private struct MyView: View {
         }
         .padding(.horizontal, 22)
         .padding(.vertical, 14)
+    }
+
+    @ViewBuilder
+    private var sessionUsageSummary: some View {
+        if meeting.mode == .fast {
+            let total = meeting.totalAudioSentSeconds
+            if meeting.canEstimateFastCost {
+                Text(
+                    "API audio \(formatDuration(total)) · est. $\(meeting.estimatedFastCostUSD, specifier: "%.3f")"
+                )
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .help("Fast estimate uses $0.034/min translation + $0.017/min live transcription for audio actually sent after local silence gating.")
+            } else {
+                Text("API audio \(formatDuration(total)) · custom model pricing")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+        } else {
+            let turns = meeting.remoteTurnCount + meeting.localTurnCount
+            if meeting.canEstimateAccurateCost {
+                Text("Turns \(turns) · est. $\(meeting.estimatedAccurateCostUSD, specifier: "%.3f")")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .help("Accurate estimate uses server-reported Realtime token usage plus input-transcription duration.")
+            } else {
+                Text("Turns \(turns) · custom model pricing")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func formatDuration(_ seconds: Double) -> String {
+        let whole = max(0, Int(seconds.rounded()))
+        return String(format: "%d:%02d", whole / 60, whole % 60)
     }
 
     private var connectionPanel: some View {

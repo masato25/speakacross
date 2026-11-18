@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import SpeakAcrossCore
 
 private struct FullE2EConfig {
@@ -310,6 +311,15 @@ private func writeReport(
 @main
 private struct SpeakAcrossFullE2E {
     static func main() async {
+        guard ProcessInfo.processInfo.environment["SPEAKACROSS_ALLOW_PAID_E2E"] == "1" else {
+            FileHandle.standardError.write(
+                Data(
+                    "Refusing to run paid OpenAI E2E regression. Set SPEAKACROSS_ALLOW_PAID_E2E=1 to continue.\n".utf8
+                )
+            )
+            Darwin.exit(2)
+        }
+
         if CommandLine.arguments.contains("--golden") {
             await GoldenE2ERunner.run()
             return

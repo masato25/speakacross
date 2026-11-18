@@ -5,13 +5,13 @@ The full AI-to-AI regression verifies transport, Realtime sessions, latency, dir
 Run:
 
 ```sh
-./Scripts/run-golden-e2e.sh
+SPEAKACROSS_ALLOW_PAID_E2E=1 ./Scripts/run-golden-e2e.sh
 ```
 
 The production Accurate path can also be tested with automatic server VAD (the same turn-detection mode used by the app):
 
 ```sh
-./Scripts/run-accurate-vad-e2e.sh
+SPEAKACROSS_ALLOW_PAID_E2E=1 ./Scripts/run-accurate-vad-e2e.sh
 ```
 
 Each case has a fixed source sentence and expected meaning. A Realtime voice fixture is instructed to read the sentence exactly. Fast tests pass the PCM through `OpenAIRealtimeTranslationSession`; Accurate tests pass the same PCM through the production `OpenAIRealtimeInterpreterSession`. A structured Responses API judge then evaluates the result.
@@ -56,7 +56,7 @@ SPEAKACROSS_GOLDEN_REPORT=/tmp/speakacross-golden-e2e-report.json
 For a longer-lived Accurate session soak test, repeat the same fixtures without recreating the interpreter sessions:
 
 ```sh
-SPEAKACROSS_SOAK_REPEAT=10 ./Scripts/run-soak.sh
+SPEAKACROSS_ALLOW_PAID_E2E=1 SPEAKACROSS_SOAK_REPEAT=10 ./Scripts/run-soak.sh
 ```
 
 The default is 10 repeats (60 translated turns). Reduce the repeat count for a smoke test or increase it for longer local validation.

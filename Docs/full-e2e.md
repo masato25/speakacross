@@ -17,8 +17,10 @@ The harness uses the production `OpenAIRealtimeTranslationSession` and `AlignedC
 Run:
 
 ```sh
-./Scripts/run-full-e2e.sh
+SPEAKACROSS_ALLOW_PAID_E2E=1 ./Scripts/run-full-e2e.sh
 ```
+
+The acknowledgement is required because this regression uses real OpenAI audio APIs and incurs API charges.
 
 The test validates:
 

@@ -3,6 +3,7 @@ set -eu
 
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 cd "$ROOT"
+. "$ROOT/Scripts/require-paid-e2e.sh"
 
 echo "SpeakAcross Accurate Automatic-VAD E2E"
 echo "Fixed AI speech -> production server VAD -> accurate interpreter -> semantic judge"

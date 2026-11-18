@@ -14,11 +14,47 @@ public enum RealtimeInterpreterError: LocalizedError {
     }
 }
 
+public struct RealtimeInterpreterResponseUsage: Equatable, Sendable {
+    public let inputTokens: Int
+    public let outputTokens: Int
+    public let inputAudioTokens: Int
+    public let inputTextTokens: Int
+    public let cachedInputTokens: Int
+    public let cachedAudioTokens: Int
+    public let cachedTextTokens: Int
+    public let outputAudioTokens: Int
+    public let outputTextTokens: Int
+
+    public init(
+        inputTokens: Int,
+        outputTokens: Int,
+        inputAudioTokens: Int,
+        inputTextTokens: Int,
+        cachedInputTokens: Int,
+        cachedAudioTokens: Int,
+        cachedTextTokens: Int,
+        outputAudioTokens: Int,
+        outputTextTokens: Int
+    ) {
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
+        self.inputAudioTokens = inputAudioTokens
+        self.inputTextTokens = inputTextTokens
+        self.cachedInputTokens = cachedInputTokens
+        self.cachedAudioTokens = cachedAudioTokens
+        self.cachedTextTokens = cachedTextTokens
+        self.outputAudioTokens = outputAudioTokens
+        self.outputTextTokens = outputTextTokens
+    }
+}
+
 public final class OpenAIRealtimeInterpreterSession: NSObject, URLSessionWebSocketDelegate, @unchecked Sendable {
     public var onReady: (@Sendable () -> Void)?
     public var onOriginalDelta: (@Sendable (String) -> Void)?
     public var onTranslationDelta: (@Sendable (String) -> Void)?
     public var onTurnCompleted: (@Sendable () -> Void)?
+    public var onResponseUsage: (@Sendable (RealtimeInterpreterResponseUsage) -> Void)?
+    public var onTranscriptionDuration: (@Sendable (Double) -> Void)?
     public var onError: (@Sendable (Error) -> Void)?
 
     private let apiKey: String
@@ -285,6 +321,11 @@ public final class OpenAIRealtimeInterpreterSession: NSObject, URLSessionWebSock
 
         case "conversation.item.input_audio_transcription.completed":
             let transcript = object["transcript"] as? String ?? ""
+            if let usage = object["usage"] as? [String: Any],
+               let seconds = (usage["seconds"] as? NSNumber)?.doubleValue,
+               seconds > 0 {
+                onTranscriptionDuration?(seconds)
+            }
             var shouldEmitCompleted = false
             turnLock.lock()
             if !originalHadDelta, !transcript.isEmpty {
@@ -308,6 +349,9 @@ public final class OpenAIRealtimeInterpreterSession: NSObject, URLSessionWebSock
 
         case "response.done":
             let response = object["response"] as? [String: Any]
+            if let usage = Self.parseResponseUsage(response?["usage"] as? [String: Any]) {
+                onResponseUsage?(usage)
+            }
             let status = response?["status"] as? String ?? "unknown"
             guard status == "completed" else {
                 onError?(RealtimeInterpreterError.server("Realtime interpreter response status: \(status)"))
@@ -393,5 +437,31 @@ public final class OpenAIRealtimeInterpreterSession: NSObject, URLSessionWebSock
         If a technical term is mixed into another language, keep that term unchanged instead of guessing a translation.
         \(glossary)
         """
+    }
+
+    private static func parseResponseUsage(
+        _ usage: [String: Any]?
+    ) -> RealtimeInterpreterResponseUsage? {
+        guard let usage else { return nil }
+
+        let inputDetails = usage["input_token_details"] as? [String: Any]
+        let outputDetails = usage["output_token_details"] as? [String: Any]
+        let cachedDetails = inputDetails?["cached_tokens_details"] as? [String: Any]
+
+        func int(_ value: Any?) -> Int {
+            (value as? NSNumber)?.intValue ?? 0
+        }
+
+        return RealtimeInterpreterResponseUsage(
+            inputTokens: int(usage["input_tokens"]),
+            outputTokens: int(usage["output_tokens"]),
+            inputAudioTokens: int(inputDetails?["audio_tokens"]),
+            inputTextTokens: int(inputDetails?["text_tokens"]),
+            cachedInputTokens: int(inputDetails?["cached_tokens"]),
+            cachedAudioTokens: int(cachedDetails?["audio_tokens"]),
+            cachedTextTokens: int(cachedDetails?["text_tokens"]),
+            outputAudioTokens: int(outputDetails?["audio_tokens"]),
+            outputTextTokens: int(outputDetails?["text_tokens"])
+        )
     }
 }
