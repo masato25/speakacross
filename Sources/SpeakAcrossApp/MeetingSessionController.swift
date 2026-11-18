@@ -61,6 +61,7 @@ final class MeetingSessionController: ObservableObject {
     @Published private(set) var outputDevices: [AudioDeviceInfo] = []
     @Published private(set) var audioDeviceError: String?
     @Published private(set) var inputLevel: Double = 0
+    @Published private(set) var systemAudioLevel: Double = 0
     @Published private(set) var remoteAudioSentSeconds: Double = 0
     @Published private(set) var localAudioSentSeconds: Double = 0
     @Published private(set) var remoteTurnCount = 0
@@ -319,7 +320,14 @@ final class MeetingSessionController: ObservableObject {
                 localSink = { [weak localRelay] data in localRelay?.send(data) }
             }
 
-            let systemAudio = SystemAudioCapturer(onPCM16: remoteSink)
+            let systemAudio = SystemAudioCapturer(
+                onLevel: { [weak self] level in
+                    Task { @MainActor in
+                        self?.systemAudioLevel = level
+                    }
+                },
+                onPCM16: remoteSink
+            )
             let microphone = MicrophoneCapturer(
                 deviceUID: selectedInputUID.isEmpty ? nil : selectedInputUID,
                 onLevel: { [weak self] level in
@@ -709,6 +717,7 @@ final class MeetingSessionController: ObservableObject {
 
         await systemAudio?.stop()
         systemAudio = nil
+        systemAudioLevel = 0
         remoteRelay.update(nil)
         localRelay.update(nil)
 

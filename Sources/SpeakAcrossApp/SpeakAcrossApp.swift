@@ -120,9 +120,12 @@ private struct MyView: View {
                 Spacer()
 
                 if meeting.state == .running {
-                    Text("Listening")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        AudioLevelPill(label: "System", level: meeting.systemAudioLevel)
+                        Text("Listening")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             .padding(.bottom, 24)
@@ -367,6 +370,20 @@ private struct MyView: View {
             }
 
             HStack(spacing: 12) {
+                Text("System audio")
+                    .frame(width: 92, alignment: .leading)
+
+                ProgressView(value: meeting.systemAudioLevel, total: 1)
+                    .progressViewStyle(.linear)
+                    .frame(maxWidth: .infinity)
+
+                Text(meeting.systemAudioLevel > 0.04 ? "Receiving" : "Silent")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(meeting.systemAudioLevel > 0.04 ? .primary : .secondary)
+                    .frame(width: 64, alignment: .trailing)
+            }
+
+            HStack(spacing: 12) {
                 Text("AI Output")
                     .frame(width: 92, alignment: .leading)
 
@@ -567,18 +584,30 @@ private struct CaptionTimeline: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 24) {
-                    ForEach(history) { caption in
-                        FinalizedTurn(caption: caption, originalLabel: originalLabel)
+                    let visibleHistory = Array(history.suffix(currentHasContent ? 3 : 4))
+                    ForEach(Array(visibleHistory.enumerated()), id: \.element.id) { index, caption in
+                        let isPrimary = !currentHasContent && index == visibleHistory.count - 1
+                        FinalizedTurn(
+                            caption: caption,
+                            originalLabel: originalLabel,
+                            isPrimary: isPrimary
+                        )
                     }
 
-                    CurrentTurn(
-                        caption: current,
-                        translatedPlaceholder: translatedPlaceholder,
-                        originalPlaceholder: originalPlaceholder,
-                        primaryRole: primaryRole,
-                        originalLabel: originalLabel
-                    )
-                    .id("current-turn")
+                    if currentHasContent || history.isEmpty {
+                        CurrentTurn(
+                            caption: current,
+                            translatedPlaceholder: translatedPlaceholder,
+                            originalPlaceholder: originalPlaceholder,
+                            primaryRole: primaryRole,
+                            originalLabel: originalLabel
+                        )
+                        .id("current-turn")
+                    } else {
+                        Color.clear
+                            .frame(height: 1)
+                            .id("current-turn")
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.bottom, 8)
@@ -590,17 +619,23 @@ private struct CaptionTimeline: View {
             }
         }
     }
+
+    private var currentHasContent: Bool {
+        !current.translatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+        !current.originalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 }
 
 private struct FinalizedTurn: View {
     let caption: MeetingCaption
     let originalLabel: String
+    let isPrimary: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(caption.translatedText)
-                .font(.title3)
-                .foregroundStyle(.primary)
+                .font(isPrimary ? .title2.weight(.medium) : .title3)
+                .foregroundStyle(isPrimary ? .primary : .secondary)
                 .textSelection(.enabled)
 
             if !caption.originalText.isEmpty {
@@ -612,7 +647,23 @@ private struct FinalizedTurn: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 4)
-        .opacity(0.72)
+        .opacity(isPrimary ? 1 : 0.58)
+    }
+}
+
+private struct AudioLevelPill: View {
+    let label: String
+    let level: Double
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(label)
+            ProgressView(value: level, total: 1)
+                .progressViewStyle(.linear)
+                .frame(width: 54)
+        }
+        .font(.caption2.monospacedDigit())
+        .foregroundStyle(level > 0.04 ? .primary : .secondary)
     }
 }
 

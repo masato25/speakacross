@@ -73,6 +73,26 @@ final class PCM24kEncoder: @unchecked Sendable {
     }
 }
 
+private func normalizedPCM16Level(_ data: Data) -> Double {
+    let sampleCount = data.count / MemoryLayout<Int16>.size
+    guard sampleCount > 0 else { return 0 }
+
+    let meanSquare = data.withUnsafeBytes { rawBuffer -> Double in
+        let samples = rawBuffer.bindMemory(to: Int16.self)
+        var sum = 0.0
+        for sample in samples {
+            let normalized = Double(sample) / Double(Int16.max)
+            sum += normalized * normalized
+        }
+        return sum / Double(sampleCount)
+    }
+
+    let rms = sqrt(meanSquare)
+    guard rms > 0 else { return 0 }
+    let decibels = 20 * log10(rms)
+    return min(1, max(0, (decibels + 60) / 60))
+}
+
 final class MicrophoneCapturer: @unchecked Sendable {
     private let engine = AVAudioEngine()
     private let encoder = PCM24kEncoder()
@@ -104,7 +124,7 @@ final class MicrophoneCapturer: @unchecked Sendable {
         input.installTap(onBus: 0, bufferSize: 2_048, format: format) { [encoder, onPCM16, onLevel] buffer, _ in
             let data = encoder.encode(buffer)
             if !data.isEmpty {
-                onLevel(Self.normalizedLevel(fromPCM16: data))
+                onLevel(normalizedPCM16Level(data))
                 onPCM16(data)
             }
         }
@@ -122,34 +142,19 @@ final class MicrophoneCapturer: @unchecked Sendable {
         engine.stop()
     }
 
-    private static func normalizedLevel(fromPCM16 data: Data) -> Double {
-        let sampleCount = data.count / MemoryLayout<Int16>.size
-        guard sampleCount > 0 else { return 0 }
-
-        let meanSquare = data.withUnsafeBytes { rawBuffer -> Double in
-            let samples = rawBuffer.bindMemory(to: Int16.self)
-            var sum = 0.0
-            for sample in samples {
-                let normalized = Double(sample) / Double(Int16.max)
-                sum += normalized * normalized
-            }
-            return sum / Double(sampleCount)
-        }
-
-        let rms = sqrt(meanSquare)
-        guard rms > 0 else { return 0 }
-
-        let decibels = 20 * log10(rms)
-        return min(1, max(0, (decibels + 60) / 60))
-    }
 }
 
 final class SystemAudioCapturer: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     private let encoder = PCM24kEncoder()
     private let onPCM16: @Sendable (Data) -> Void
+    private let onLevel: @Sendable (Double) -> Void
     private var stream: SCStream?
 
-    init(onPCM16: @escaping @Sendable (Data) -> Void) {
+    init(
+        onLevel: @escaping @Sendable (Double) -> Void = { _ in },
+        onPCM16: @escaping @Sendable (Data) -> Void
+    ) {
+        self.onLevel = onLevel
         self.onPCM16 = onPCM16
     }
 
@@ -207,6 +212,7 @@ final class SystemAudioCapturer: NSObject, SCStreamOutput, SCStreamDelegate, @un
 
         let data = encoder.encode(buffer)
         if !data.isEmpty {
+            onLevel(normalizedPCM16Level(data))
             onPCM16(data)
         }
     }
