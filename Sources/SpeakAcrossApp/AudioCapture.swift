@@ -98,16 +98,19 @@ final class MicrophoneCapturer: @unchecked Sendable {
     private let encoder = PCM24kEncoder()
     private let onPCM16: @Sendable (Data) -> Void
     private let onLevel: @Sendable (Double) -> Void
+    private let onDiagnostic: @Sendable (String) -> Void
     private let deviceUID: String?
     private var installedTap = false
 
     init(
         deviceUID: String? = nil,
         onLevel: @escaping @Sendable (Double) -> Void = { _ in },
+        onDiagnostic: @escaping @Sendable (String) -> Void = { _ in },
         onPCM16: @escaping @Sendable (Data) -> Void
     ) {
         self.deviceUID = deviceUID
         self.onLevel = onLevel
+        self.onDiagnostic = onDiagnostic
         self.onPCM16 = onPCM16
     }
 
@@ -116,22 +119,30 @@ final class MicrophoneCapturer: @unchecked Sendable {
         guard granted else { throw AudioCaptureError.microphoneDenied }
 
         let input = engine.inputNode
+        onDiagnostic("permission=granted · requestedUID=\(deviceUID ?? "system-default")")
         if let audioUnit = input.audioUnit {
             try AudioUnitDeviceRouting.selectDevice(uid: deviceUID, for: audioUnit)
         }
         let format = input.outputFormat(forBus: 0)
+        onDiagnostic(
+            "format=\(Int(format.sampleRate))Hz/\(format.channelCount)ch · engineTap=installing"
+        )
 
-        input.installTap(onBus: 0, bufferSize: 2_048, format: format) { [encoder, onPCM16, onLevel] buffer, _ in
+        input.installTap(onBus: 0, bufferSize: 2_048, format: format) { [encoder, onPCM16, onLevel, onDiagnostic] buffer, _ in
             let data = encoder.encode(buffer)
             if !data.isEmpty {
                 onLevel(normalizedPCM16Level(data))
+                onDiagnostic("tap=receiving · frames=\(buffer.frameLength) · pcm=\(data.count)B")
                 onPCM16(data)
+            } else {
+                onDiagnostic("tap=receiving · frames=\(buffer.frameLength) · pcm=0B")
             }
         }
         installedTap = true
 
         engine.prepare()
         try engine.start()
+        onDiagnostic("engine=running · format=\(Int(format.sampleRate))Hz/\(format.channelCount)ch")
     }
 
     func stop() {

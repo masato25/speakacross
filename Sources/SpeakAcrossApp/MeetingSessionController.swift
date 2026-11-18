@@ -142,6 +142,7 @@ final class MeetingSessionController: ObservableObject {
     @Published private(set) var audioDeviceError: String?
     @Published private(set) var inputLevel: Double = 0
     @Published private(set) var systemAudioLevel: Double = 0
+    @Published private(set) var microphoneDiagnostic = "Not started"
     @Published private(set) var remoteAudioSentSeconds: Double = 0
     @Published private(set) var localAudioSentSeconds: Double = 0
     @Published private(set) var remoteTurnCount = 0
@@ -179,6 +180,8 @@ final class MeetingSessionController: ObservableObject {
     private let localRelay = PCMRelay()
     private let recoveryPolicy = SessionRecoveryPolicy()
     private var recoveryTask: Task<Void, Never>?
+    private var remoteIdleFinalizeTask: Task<Void, Never>?
+    private var localIdleFinalizeTask: Task<Void, Never>?
     private var recoveryAttempt = 0
     private var pendingRecoveryError: String?
     private var activeAPIKey = ""
@@ -419,20 +422,6 @@ final class MeetingSessionController: ObservableObject {
                 localSink = { [weak localRelay] data in localRelay?.send(data) }
 
             case .accurate:
-                let keywords = [
-                    "RPC",
-                    "gateway",
-                    "provider",
-                    "keeper",
-                    "health factor",
-                    "Morpho",
-                    "Uniswap v3",
-                    "rebalancing",
-                    "circuit breaker",
-                    "smart contract",
-                    "DeFi"
-                ]
-
                 let remote = OpenAIRealtimeTranslationSession(
                     apiKey: key,
                     targetLanguage: activeListeningTargetLanguage.realtimeTargetCode,
@@ -442,26 +431,23 @@ final class MeetingSessionController: ObservableObject {
                     normalizeTraditionalChinese: activeListeningTargetLanguage.shouldNormalizeTraditionalChinese,
                     silenceGate: makeFastSilenceGate()
                 )
-                let local = OpenAIRealtimeInterpreterSession(
+                let local = OpenAIRealtimeTranslationSession(
                     apiKey: key,
-                    model: accurateModel,
+                    targetLanguage: activeSpeakingTargetLanguage.realtimeTargetCode,
+                    model: translationModel,
                     transcriptionModel: transcriptionModel,
-                    targetLanguageName: activeSpeakingTargetLanguage.interpreterTargetName,
-                    transcriptionPrompt: activeSpeakingSourceLanguage.transcriptionPrompt,
-                    transcriptionKeywords: keywords,
-                    transcriptionLanguages: activeSpeakingSourceLanguage.transcriptionLanguages,
                     normalizeOriginalTraditionalChinese: activeSpeakingSourceLanguage.shouldNormalizeTraditionalChinese,
-                    normalizeTranslationTraditionalChinese: activeSpeakingTargetLanguage.shouldNormalizeTraditionalChinese,
-                    vadSilenceDurationMilliseconds: activeSpeakingVADSilenceMilliseconds
+                    normalizeTraditionalChinese: activeSpeakingTargetLanguage.shouldNormalizeTraditionalChinese,
+                    silenceGate: makeFastSilenceGate()
                 )
 
                 wireFast(remote, speaker: .remote)
-                wireAccurate(local, speaker: .local)
+                wireFast(local, speaker: .local)
                 try remote.connect()
                 try local.connect()
 
                 remoteFastSession = remote
-                localAccurateSession = local
+                localFastSession = local
                 remoteRelay.update { [weak remote] data in
                     remote?.appendPCM16_24k(data)
                 }
@@ -480,11 +466,20 @@ final class MeetingSessionController: ObservableObject {
                 },
                 onPCM16: remoteSink
             )
+            let selectedMicrophoneUID = selectedInputUID.isEmpty ? nil : selectedInputUID
+            let captureMicrophoneUID = selectedMicrophoneUID == AudioDeviceCatalog.defaultInputUID()
+                ? nil
+                : selectedMicrophoneUID
             let microphone = MicrophoneCapturer(
-                deviceUID: selectedInputUID.isEmpty ? nil : selectedInputUID,
+                deviceUID: captureMicrophoneUID,
                 onLevel: { [weak self] level in
                     Task { @MainActor in
                         self?.inputLevel = level
+                    }
+                },
+                onDiagnostic: { [weak self] message in
+                    Task { @MainActor in
+                        self?.microphoneDiagnostic = message
                     }
                 },
                 onPCM16: localSink
@@ -701,7 +696,6 @@ final class MeetingSessionController: ObservableObject {
             localRelay.update { [weak local] data in local?.appendPCM16_24k(data) }
 
         case .accurate:
-            let keywords = Self.technicalKeywords
             let remote = OpenAIRealtimeTranslationSession(
                 apiKey: activeAPIKey,
                 targetLanguage: activeListeningTargetLanguage.realtimeTargetCode,
@@ -711,24 +705,21 @@ final class MeetingSessionController: ObservableObject {
                 normalizeTraditionalChinese: activeListeningTargetLanguage.shouldNormalizeTraditionalChinese,
                 silenceGate: makeFastSilenceGate()
             )
-            let local = OpenAIRealtimeInterpreterSession(
+            let local = OpenAIRealtimeTranslationSession(
                 apiKey: activeAPIKey,
-                model: activeAccurateModel,
+                targetLanguage: activeSpeakingTargetLanguage.realtimeTargetCode,
+                model: activeTranslationModel,
                 transcriptionModel: activeTranscriptionModel,
-                targetLanguageName: activeSpeakingTargetLanguage.interpreterTargetName,
-                transcriptionPrompt: activeSpeakingSourceLanguage.transcriptionPrompt,
-                transcriptionKeywords: keywords,
-                transcriptionLanguages: activeSpeakingSourceLanguage.transcriptionLanguages,
                 normalizeOriginalTraditionalChinese: activeSpeakingSourceLanguage.shouldNormalizeTraditionalChinese,
-                normalizeTranslationTraditionalChinese: activeSpeakingTargetLanguage.shouldNormalizeTraditionalChinese,
-                vadSilenceDurationMilliseconds: activeSpeakingVADSilenceMilliseconds
+                normalizeTraditionalChinese: activeSpeakingTargetLanguage.shouldNormalizeTraditionalChinese,
+                silenceGate: makeFastSilenceGate()
             )
             wireFast(remote, speaker: .remote) { readiness.markRemoteReady() }
-            wireAccurate(local, speaker: .local) { readiness.markLocalReady() }
+            wireFast(local, speaker: .local) { readiness.markLocalReady() }
             try remote.connect()
             try local.connect()
             remoteFastSession = remote
-            localAccurateSession = local
+            localFastSession = local
             remoteRelay.update { [weak remote] data in remote?.appendPCM16_24k(data) }
             localRelay.update { [weak local] data in local?.appendPCM16_24k(data) }
         }
@@ -744,12 +735,11 @@ final class MeetingSessionController: ObservableObject {
             publishLocalTurnState()
         } else {
             remoteTimeline.finalizeCurrent()
+            localTimeline.finalizeCurrent()
             recordTranscriptCaption(remoteTimeline.current)
-            if let caption = localAccurateBuffer.finalizeCurrent() {
-                recordTranscriptCaption(caption)
-            }
+            recordTranscriptCaption(localTimeline.current)
             publishRemoteTurnState()
-            publishAccurateState(speaker: .local)
+            publishLocalTurnState()
         }
     }
 
@@ -771,9 +761,11 @@ final class MeetingSessionController: ObservableObject {
         case .remote:
             remoteTimeline.appendOriginal(delta)
             publishRemoteTurnState()
+            scheduleIdleFinalize(speaker: .remote, elapsedMilliseconds: delta.elapsedMilliseconds)
         case .local:
             localTimeline.appendOriginal(delta)
             publishLocalTurnState()
+            scheduleIdleFinalize(speaker: .local, elapsedMilliseconds: delta.elapsedMilliseconds)
         }
     }
 
@@ -782,9 +774,40 @@ final class MeetingSessionController: ObservableObject {
         case .remote:
             remoteTimeline.appendTranslation(delta)
             publishRemoteTurnState()
+            scheduleIdleFinalize(speaker: .remote, elapsedMilliseconds: delta.elapsedMilliseconds)
         case .local:
             localTimeline.appendTranslation(delta)
             publishLocalTurnState()
+            scheduleIdleFinalize(speaker: .local, elapsedMilliseconds: delta.elapsedMilliseconds)
+        }
+    }
+
+    private func scheduleIdleFinalize(speaker: MeetingSpeaker, elapsedMilliseconds: Int?) {
+        let delayNanoseconds: UInt64 = 850_000_000
+
+        switch speaker {
+        case .remote:
+            remoteIdleFinalizeTask?.cancel()
+            remoteIdleFinalizeTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: delayNanoseconds)
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    guard let self, self.state == .running else { return }
+                    self.remoteTimeline.finalizeCurrentAndPrepareNext(at: elapsedMilliseconds)
+                    self.publishRemoteTurnState()
+                }
+            }
+        case .local:
+            localIdleFinalizeTask?.cancel()
+            localIdleFinalizeTask = Task { [weak self] in
+                try? await Task.sleep(nanoseconds: delayNanoseconds)
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    guard let self, self.state == .running else { return }
+                    self.localTimeline.finalizeCurrentAndPrepareNext(at: elapsedMilliseconds)
+                    self.publishLocalTurnState()
+                }
+            }
         }
     }
 
@@ -836,6 +859,10 @@ final class MeetingSessionController: ObservableObject {
     }
 
     private func resetCaptions() {
+        remoteIdleFinalizeTask?.cancel()
+        remoteIdleFinalizeTask = nil
+        localIdleFinalizeTask?.cancel()
+        localIdleFinalizeTask = nil
         remoteTimeline.reset()
         localTimeline.reset()
         remoteAccurateBuffer.reset()
@@ -845,7 +872,7 @@ final class MeetingSessionController: ObservableObject {
             publishLocalTurnState()
         } else {
             publishRemoteTurnState()
-            publishAccurateState(speaker: .local)
+            publishLocalTurnState()
         }
     }
 
@@ -862,6 +889,10 @@ final class MeetingSessionController: ObservableObject {
     }
 
     private func tearDown(abortSessions: Bool) async {
+        remoteIdleFinalizeTask?.cancel()
+        remoteIdleFinalizeTask = nil
+        localIdleFinalizeTask?.cancel()
+        localIdleFinalizeTask = nil
         recoveryTask?.cancel()
         recoveryTask = nil
         recoveryMessage = nil
@@ -876,12 +907,11 @@ final class MeetingSessionController: ObservableObject {
             publishLocalTurnState()
         } else {
             remoteTimeline.finalizeCurrent()
+            localTimeline.finalizeCurrent()
             recordTranscriptCaption(remoteTimeline.current)
-            if let caption = localAccurateBuffer.finalizeCurrent() {
-                recordTranscriptCaption(caption)
-            }
+            recordTranscriptCaption(localTimeline.current)
             publishRemoteTurnState()
-            publishAccurateState(speaker: .local)
+            publishLocalTurnState()
         }
 
         microphone?.stop()

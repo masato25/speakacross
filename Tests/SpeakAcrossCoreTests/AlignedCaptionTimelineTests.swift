@@ -96,3 +96,18 @@ import Testing
     #expect(timeline.current.originalText == "這是一個完整句子")
     #expect(timeline.current.translatedText == "This is a")
 }
+
+@Test func alignedTimelineCanFinalizeWithoutWaitingForNextUtterance() {
+    var timeline = AlignedCaptionTimeline(speaker: .remote)
+
+    timeline.appendOriginal(.init(text: "Last sentence", elapsedMilliseconds: 1_000))
+    timeline.appendTranslation(.init(text: "最後一句", elapsedMilliseconds: 1_200))
+    timeline.finalizeCurrentAndPrepareNext(at: 1_200)
+
+    #expect(timeline.history.count == 1)
+    #expect(timeline.history[0].originalText == "Last sentence")
+    #expect(timeline.history[0].translatedText == "最後一句")
+    #expect(timeline.history[0].isFinal)
+    #expect(timeline.current.originalText.isEmpty)
+    #expect(timeline.current.translatedText.isEmpty)
+}

@@ -101,6 +101,18 @@ public struct AlignedCaptionTimeline: Equatable, Sendable {
         markCurrentFinal()
     }
 
+    public mutating func finalizeCurrentAndPrepareNext(at elapsedMilliseconds: Int?) {
+        guard let current = segments.last,
+              !current.caption.originalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || !current.caption.translatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return
+        }
+
+        markCurrentFinal()
+        let nextStart = elapsedMilliseconds.map { $0 + 1 }
+        startSegment(at: nextStart)
+    }
+
     public mutating func reset() {
         segments.removeAll(keepingCapacity: true)
         lastOriginalElapsedMilliseconds = nil
