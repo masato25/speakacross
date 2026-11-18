@@ -783,7 +783,7 @@ final class MeetingSessionController: ObservableObject {
     }
 
     private func scheduleIdleFinalize(speaker: MeetingSpeaker, elapsedMilliseconds: Int?) {
-        let delayNanoseconds: UInt64 = 850_000_000
+        let delayNanoseconds: UInt64 = 2_000_000_000
 
         switch speaker {
         case .remote:

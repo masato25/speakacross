@@ -109,8 +109,7 @@ public struct AlignedCaptionTimeline: Equatable, Sendable {
         }
 
         markCurrentFinal()
-        let nextStart = elapsedMilliseconds.map { $0 + 1 }
-        startSegment(at: nextStart)
+        startSegment(at: nil)
     }
 
     public mutating func reset() {

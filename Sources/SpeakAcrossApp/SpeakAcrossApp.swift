@@ -740,94 +740,125 @@ private struct ShareCaptionTimeline: View {
     let translatedPlaceholder: String
     let isRunning: Bool
 
-    private var currentHasContent: Bool {
-        !current.translatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+    private var translatedHistory: [String] {
+        Array(
+            history
+                .map { $0.translatedText.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .suffix(16)
+        )
+    }
+
+    private var currentTranslation: String {
+        current.translatedText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isTranslatingCurrent: Bool {
+        currentTranslation.isEmpty &&
         !current.originalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 26) {
-                    let visibleHistory = Array(history.suffix(currentHasContent ? 3 : 4))
-                    ForEach(Array(visibleHistory.enumerated()), id: \.element.id) { index, caption in
-                        let isLatest = !currentHasContent && index == visibleHistory.count - 1
-                        ShareTurn(caption: caption, isPrimary: isLatest)
-                    }
-
-                    if currentHasContent {
-                        ShareTurn(caption: current, isPrimary: true)
-                            .id("share-current-turn")
-                    } else if history.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    if translatedHistory.isEmpty && currentTranslation.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
                             Text(translatedPlaceholder)
-                                .font(.system(size: 34, weight: .medium))
+                                .font(.system(size: 30, weight: .medium))
                                 .foregroundStyle(.tertiary)
 
-                            if isRunning {
-                                Text("Listening for your Chinese speech…")
+                            if isTranslatingCurrent {
+                                HStack(spacing: 8) {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                    Text("Translating…")
+                                        .font(.callout)
+                                        .foregroundStyle(.secondary)
+                                }
+                            } else if isRunning {
+                                Text("Listening for your speech…")
                                     .font(.callout)
                                     .foregroundStyle(.secondary)
                             }
                         }
-                        .id("share-current-turn")
                     } else {
-                        Color.clear
-                            .frame(height: 1)
-                            .id("share-current-turn")
+                        continuousTranslationText
+                            .font(.system(size: 30, weight: .medium))
+                            .lineSpacing(8)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        HStack(spacing: 8) {
+                            if isTranslatingCurrent {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text("Translating…")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .frame(height: 18)
                     }
+
+                    Color.clear
+                        .frame(height: 1)
+                        .id("share-bottom")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.bottom, 12)
+                .padding(.bottom, 8)
             }
             .onChange(of: history.count) { _, _ in
                 withAnimation(.easeOut(duration: 0.2)) {
-                    proxy.scrollTo("share-current-turn", anchor: .bottom)
+                    proxy.scrollTo("share-bottom", anchor: .bottom)
+                }
+            }
+            .onChange(of: current.translatedText) { _, _ in
+                withAnimation(.easeOut(duration: 0.15)) {
+                    proxy.scrollTo("share-bottom", anchor: .bottom)
                 }
             }
         }
     }
 
-}
+    private var continuousTranslationText: Text {
+        let older: String
+        let active: String
 
-private struct ShareTurn: View {
-    let caption: MeetingCaption
-    let isPrimary: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: isPrimary ? 12 : 7) {
-            if !caption.translatedText.isEmpty {
-                Text(caption.translatedText)
-                    .font(.system(size: isPrimary ? 38 : 22, weight: isPrimary ? .medium : .regular))
-                    .foregroundStyle(isPrimary ? .primary : .secondary)
-                    .lineSpacing(isPrimary ? 7 : 4)
-                    .textSelection(.enabled)
-            } else if !caption.originalText.isEmpty {
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text("Translating…")
-                        .font(isPrimary ? .title3.weight(.medium) : .callout)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            if !caption.originalText.isEmpty {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("中文")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-
-                    Text(caption.originalText)
-                        .font(.system(size: isPrimary ? 16 : 13))
-                        .foregroundStyle(isPrimary ? .secondary : .tertiary)
-                        .lineSpacing(3)
-                        .textSelection(.enabled)
-                }
-            }
+        if !currentTranslation.isEmpty {
+            older = joinSegments(translatedHistory)
+            active = currentTranslation
+        } else {
+            older = joinSegments(Array(translatedHistory.dropLast()))
+            active = translatedHistory.last ?? ""
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .opacity(isPrimary ? 1 : 0.62)
+
+        let separator = segmentSeparator(after: older, before: active)
+        if older.isEmpty {
+            return Text(active).foregroundColor(.primary)
+        }
+        return Text(older).foregroundColor(.secondary)
+            + Text(separator + active).foregroundColor(.primary)
+    }
+
+    private func joinSegments(_ segments: [String]) -> String {
+        segments.reduce(into: "") { result, segment in
+            let trimmed = segment.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return }
+            result += segmentSeparator(after: result, before: trimmed) + trimmed
+        }
+    }
+
+    private func segmentSeparator(after existing: String, before next: String) -> String {
+        guard let last = existing.last, let first = next.first else { return "" }
+        if last.isWhitespace || first.isWhitespace { return "" }
+        let leadingPunctuation: Set<Character> = [
+            ",", ".", "?", "!", ";", ":", ")", "]", "}", "\"", "'",
+            "，", "。", "？", "！", "、", "；", "：", "）", "」", "』"
+        ]
+        if leadingPunctuation.contains(first) { return "" }
+        if last.isASCII && first.isASCII { return " " }
+        return ""
     }
 }
 
