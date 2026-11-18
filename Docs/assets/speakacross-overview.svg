@@ -1,0 +1,116 @@
+<svg width="1440" height="840" viewBox="0 0 1440 840" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="14" stdDeviation="24" flood-opacity="0.18"/>
+    </filter>
+    <style>
+      .ui { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    </style>
+  </defs>
+
+  <rect width="1440" height="840" rx="40" fill="#F5F5F3"/>
+
+  <g class="ui">
+    <text x="72" y="72" font-size="38" font-weight="700" fill="#171717">SpeakAcross</text>
+    <text x="72" y="108" font-size="19" fill="#666666">Two-way bilingual meeting subtitles — private for you, shareable for them</text>
+
+    <!-- Conversation participants -->
+    <g>
+      <rect x="72" y="138" width="220" height="48" rx="24" fill="#E9E9E6"/>
+      <circle cx="100" cy="162" r="13" fill="#B8B8B2"/>
+      <text x="122" y="168" font-size="15" font-weight="650" fill="#3B3B3B">Remote participant</text>
+
+      <rect x="1148" y="138" width="220" height="48" rx="24" fill="#E9E9E6"/>
+      <circle cx="1176" cy="162" r="13" fill="#8C8C86"/>
+      <text x="1198" y="168" font-size="15" font-weight="650" fill="#3B3B3B">You</text>
+    </g>
+
+    <!-- Step 1: remote speaks -->
+    <rect x="72" y="205" width="350" height="76" rx="18" fill="#FFFFFF"/>
+    <text x="94" y="231" font-size="12" font-weight="700" fill="#8A8A8A">REMOTE · ENGLISH</text>
+      <text x="94" y="256" font-size="17" font-weight="600" fill="#2C2C2C">“Who are your main customers today,</text>
+      <text x="94" y="278" font-size="17" font-weight="600" fill="#2C2C2C">and where do you want sales to grow?”</text>
+
+    <path d="M430 244H500" stroke="#A0A0A0" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="M500 244L490 238V250L500 244Z" fill="#A0A0A0"/>
+    <text x="442" y="228" font-size="11" font-weight="700" fill="#969696">1 · system audio</text>
+
+    <!-- Main / My View -->
+    <g filter="url(#shadow)">
+      <rect x="500" y="154" width="610" height="500" rx="22" fill="#262626"/>
+      <rect x="500" y="154" width="610" height="64" rx="22" fill="#303030"/>
+      <rect x="500" y="196" width="610" height="22" fill="#303030"/>
+
+      <circle cx="526" cy="182" r="6" fill="#FF5F57"/>
+      <circle cx="546" cy="182" r="6" fill="#FEBC2E"/>
+      <circle cx="566" cy="182" r="6" fill="#28C840"/>
+
+      <text x="594" y="187" font-size="17" font-weight="700" fill="#F4F4F4">SpeakAcross</text>
+      <text x="594" y="207" font-size="11" fill="#A8A8A8">My View · private</text>
+
+      <rect x="880" y="169" width="116" height="28" rx="14" fill="#3B3B3B"/>
+      <text x="895" y="188" font-size="12" font-weight="600" fill="#D8D8D8">English → 繁中</text>
+      <rect x="1006" y="169" width="72" height="28" rx="14" fill="#3B3B3B"/>
+      <text x="1018" y="188" font-size="12" font-weight="600" fill="#D8D8D8">Accurate</text>
+
+      <text x="530" y="258" font-size="14" font-weight="700" fill="#BBBBBB">Remote</text>
+      <text x="930" y="258" font-size="11" fill="#999999">System audio</text>
+      <rect x="1000" y="251" width="52" height="6" rx="3" fill="#525252"/>
+      <rect x="1000" y="251" width="34" height="6" rx="3" fill="#62A8FF"/>
+
+      <text x="530" y="314" font-size="27" font-weight="650" fill="#F3F3F3">你們目前主要的客戶是誰？</text>
+      <text x="530" y="351" font-size="27" font-weight="650" fill="#F3F3F3">接下來希望銷售往哪個市場成長？</text>
+
+      <text x="530" y="389" font-size="12" font-weight="700" fill="#777777">ORIGINAL</text>
+      <text x="530" y="415" font-size="15" fill="#AFAFAF">Who are your main customers today, and where do you want sales to grow?</text>
+
+      <rect x="530" y="456" width="550" height="1" fill="#444444"/>
+
+      <text x="530" y="494" font-size="12" font-weight="700" fill="#777777">YOUR REPLY</text>
+      <text x="530" y="523" font-size="20" font-weight="600" fill="#DADADA">目前主要是台灣的年輕消費者，</text>
+      <text x="530" y="552" font-size="20" font-weight="600" fill="#DADADA">下一步想增加日本市場和自有官網銷售。</text>
+      <text x="530" y="584" font-size="13" fill="#929292">Microphone · Chinese → English appears in Share View</text>
+
+      <rect x="500" y="614" width="610" height="40" fill="#303030"/>
+      <text x="530" y="639" font-size="12" fill="#BDBDBD">Accurate</text>
+      <text x="605" y="639" font-size="12" fill="#E7E7E7">Stop Meeting</text>
+      <text x="707" y="639" font-size="12" fill="#E7E7E7">Open Share View</text>
+      <text x="1008" y="639" font-size="11" fill="#9A9A9A">Live</text>
+    </g>
+
+    <!-- Step 2: local speech heads to Share View -->
+    <path d="M1118 510H1164" stroke="#A0A0A0" stroke-width="2.5" stroke-linecap="round"/>
+    <path d="M1164 510L1154 504V516L1164 510Z" fill="#A0A0A0"/>
+    <text x="1118" y="492" font-size="11" font-weight="700" fill="#969696">2 · share reply</text>
+
+    <!-- Share View, fixed width / wrapping -->
+    <g filter="url(#shadow)">
+      <rect x="1164" y="306" width="204" height="348" rx="20" fill="#FCFCFC"/>
+      <rect x="1164" y="306" width="204" height="54" rx="20" fill="#F1F1EF"/>
+      <rect x="1164" y="340" width="204" height="20" fill="#F1F1EF"/>
+
+      <text x="1182" y="338" font-size="13" font-weight="700" fill="#303030">Share View</text>
+      <circle cx="1344" cy="333" r="5" fill="#34D058"/>
+
+      <text x="1182" y="389" font-size="10" font-weight="700" fill="#999999">ENGLISH</text>
+      <text x="1182" y="421" font-size="18" font-weight="650" fill="#222222">Our main customers</text>
+      <text x="1182" y="447" font-size="18" font-weight="650" fill="#222222">are young consumers</text>
+      <text x="1182" y="473" font-size="18" font-weight="650" fill="#222222">in Taiwan. Next,</text>
+      <text x="1182" y="499" font-size="18" font-weight="650" fill="#222222">we want to grow in</text>
+      <text x="1182" y="525" font-size="18" font-weight="650" fill="#222222">Japan and increase</text>
+      <text x="1182" y="551" font-size="18" font-weight="650" fill="#222222">direct web sales.</text>
+
+      <text x="1182" y="594" font-size="10" font-weight="700" fill="#AAAAAA">中文</text>
+      <text x="1182" y="616" font-size="12" fill="#707070">主要是台灣年輕消費者，</text>
+      <text x="1182" y="635" font-size="12" fill="#707070">下一步做日本市場與官網銷售。</text>
+    </g>
+
+    <!-- Return arrow to complete the conversation loop -->
+    <path d="M1280 694C1100 758 320 758 164 696" stroke="#B5B5AF" stroke-width="2" stroke-dasharray="6 8" fill="none"/>
+    <path d="M165 696L177 693L172 705L165 696Z" fill="#B5B5AF"/>
+    <text x="562" y="754" font-size="14" font-weight="650" fill="#727272">The other participant reads your English reply — the conversation continues</text>
+
+    <rect x="72" y="788" width="1296" height="1" fill="#DDDDD8"/>
+    <text x="72" y="818" font-size="13" fill="#8B8B86">Remote English → your Traditional Chinese · Your Chinese → their English</text>
+  </g>
+</svg>

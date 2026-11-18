@@ -478,6 +478,10 @@ private struct ShareView: View {
 
             Spacer()
 
+            if meeting.state == .running {
+                AudioLevelPill(label: "Mic", level: meeting.inputLevel)
+            }
+
             LanguageRoute(source: "中文", target: "English")
             StatusBadge(state: meeting.state)
         }
@@ -490,7 +494,8 @@ private struct ShareView: View {
             ShareCaptionTimeline(
                 history: meeting.localHistory,
                 current: meeting.localCaption,
-                translatedPlaceholder: "Your English translation will appear here…"
+                translatedPlaceholder: "Your English translation will appear here…",
+                isRunning: meeting.state == .running
             )
         }
         .padding(.horizontal, 30)
@@ -503,6 +508,7 @@ private struct ShareCaptionTimeline: View {
     let history: [MeetingCaption]
     let current: MeetingCaption
     let translatedPlaceholder: String
+    let isRunning: Bool
 
     private var currentHasContent: Bool {
         !current.translatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
@@ -523,10 +529,18 @@ private struct ShareCaptionTimeline: View {
                         ShareTurn(caption: current, isPrimary: true)
                             .id("share-current-turn")
                     } else if history.isEmpty {
-                        Text(translatedPlaceholder)
-                            .font(.system(size: 34, weight: .medium))
-                            .foregroundStyle(.tertiary)
-                            .id("share-current-turn")
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(translatedPlaceholder)
+                                .font(.system(size: 34, weight: .medium))
+                                .foregroundStyle(.tertiary)
+
+                            if isRunning {
+                                Text("Listening for your Chinese speech…")
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .id("share-current-turn")
                     } else {
                         Color.clear
                             .frame(height: 1)
@@ -543,6 +557,7 @@ private struct ShareCaptionTimeline: View {
             }
         }
     }
+
 }
 
 private struct ShareTurn: View {
@@ -557,14 +572,28 @@ private struct ShareTurn: View {
                     .foregroundStyle(isPrimary ? .primary : .secondary)
                     .lineSpacing(isPrimary ? 7 : 4)
                     .textSelection(.enabled)
+            } else if !caption.originalText.isEmpty {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Translating…")
+                        .font(isPrimary ? .title3.weight(.medium) : .callout)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             if !caption.originalText.isEmpty {
-                Text(caption.originalText)
-                    .font(.system(size: isPrimary ? 16 : 13))
-                    .foregroundStyle(isPrimary ? .secondary : .tertiary)
-                    .lineSpacing(3)
-                    .textSelection(.enabled)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("中文")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+
+                    Text(caption.originalText)
+                        .font(.system(size: isPrimary ? 16 : 13))
+                        .foregroundStyle(isPrimary ? .secondary : .tertiary)
+                        .lineSpacing(3)
+                        .textSelection(.enabled)
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

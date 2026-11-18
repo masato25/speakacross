@@ -1,130 +1,273 @@
 # SpeakAcross
 
-**SpeakAcross** is an open-source bilingual meeting subtitle app for macOS, with iOS planned.
+**SpeakAcross is an open-source, native macOS bilingual meeting subtitle app for real-time English ↔ Traditional Chinese communication.**
 
-> Speak naturally in your language. Let everyone in the meeting read the original and translated subtitles.
+<p align="center">
+  <img src="Docs/assets/speakacross-overview.svg" alt="SpeakAcross My View and Share View product preview" width="100%" />
+</p>
 
-The first public version is BYOK (Bring Your Own Key) and uses the OpenAI API directly from the app.
+<p align="center"><em>My View stays private. Share View is designed for screen sharing.</em></p>
 
-## MVP
+It captures both sides of a conversation independently:
 
-- Capture remote meeting audio at the macOS system level.
-- Capture the local user's microphone.
-- Show original text and translated text together.
-- Remote English -> original English + Traditional Chinese translation.
-- Local Chinese -> original Chinese + English translation.
-- Keep the user's listening view private and share a separate subtitle-only Share View through the meeting app's normal screen-sharing feature.
+- remote meeting/system audio → English transcript → Traditional Chinese translation
+- local microphone → Chinese transcript → English translation
+
+The private **My View** helps you understand the other side. A separate **Share View** is designed to be screen-shared so the other participant can read your English translation.
+
+> Speak naturally. Read the other side in your language. Share your translation without exposing your private view.
+
+SpeakAcross is currently a macOS alpha focused on live communication rather than recording, meeting notes, or AI-generated answers.
+
+## Why SpeakAcross?
+
+Most live-caption tools assume everyone wants to see the same transcript. That breaks down in bilingual meetings where each side needs something different.
+
+SpeakAcross uses two views instead:
+
+```text
+Remote participant speaks English
+            │
+            ▼
+      macOS system audio
+            │
+            ▼
+       SpeakAcross
+            │
+            ├── My View
+            │   English original
+            │   Traditional Chinese translation
+            │
+            └── Private to you
+
+
+You speak Chinese
+      │
+      ▼
+  Microphone
+      │
+      ▼
+ SpeakAcross
+      │
+      └── Share View
+          English translation
+          Chinese original
+          safe to screen-share
+```
+
+This is intentionally a **translation tool**, not an interview-answer generator or meeting copilot.
+
+## Features
+
+- Native Swift / SwiftUI macOS app
+- macOS system-audio capture with ScreenCaptureKit
+- microphone capture with AVFoundation
+- real-time English → Traditional Chinese translation
+- real-time Chinese → English translation
+- separate private My View and shareable Share View
+- original transcript + translated text
+- system-audio and microphone activity indicators
+- selectable microphone and AI output devices
+- OpenAI BYOK (Bring Your Own Key)
+- API key storage in Apple Keychain
+- no SpeakAcross account required
+- no audio recording to disk by default
+- no persistent transcript history by default
+- no analytics requirement
+- local silence gating in Fast mode to reduce idle API audio usage
+- session usage / estimated API cost display
+- automatic Realtime session recovery
+- automated E2E, semantic regression, and soak-test tooling
 
 ## Translation modes
 
-SpeakAcross has two translation paths with different priorities:
+SpeakAcross currently provides two translation paths.
 
-- **Accurate (default)** — turn-based Realtime interpretation. Uses automatic server VAD, `gpt-live-transcribe` for the original transcript, text-only Realtime interpretation, and a technical-term glossary. This mode is intended for interviews and technical meetings where meaning, conditions, numbers, and domain terminology matter more than token-by-token streaming.
-- **Fast** — continuous Realtime Translation streaming. Captions appear while the speaker is still talking and `elapsed_ms` alignment keeps late/leading translation deltas attached to the correct source turn. This mode favors lower time-to-first-caption over technical translation quality.
+### Accurate — default
 
-## OpenAI-first
+Designed for interviews, technical meetings, and conversations where preserving meaning matters more than the earliest possible partial subtitle.
 
-The MVP intentionally uses one AI provider: OpenAI.
+- turn-based Realtime interpretation
+- `gpt-live-transcribe` source transcription
+- `gpt-realtime-2.1` text-only interpretation by default
+- server VAD turn detection
+- technical terminology guidance
+- Traditional Chinese normalization
+- stronger emphasis on names, numbers, conditions, negation, thresholds, and domain terminology
+
+### Fast
+
+Designed for lower time-to-first-caption.
+
+- `gpt-realtime-translate`
+- continuous streaming translation
+- `gpt-live-transcribe` source transcription
+- `elapsed_ms`-based source/translation alignment
+- local PCM silence gate to avoid continuously sending long idle periods
+
+Fast mode favors latency. Accurate mode is the recommended default for real meetings.
+
+## Architecture
 
 ```text
-System audio --\
-                -> SpeakAcross -> OpenAI Realtime API -> bilingual captions
-Microphone -----/
+                         ┌─────────────────────┐
+Meeting / browser audio ─► SystemAudioCapturer │
+                         │ ScreenCaptureKit    │
+                         └──────────┬──────────┘
+                                    │ PCM16 / 24 kHz
+                                    ▼
+                           Realtime session
+                                    │
+                           English → zh-Hant
+                                    │
+                                    ▼
+                                My View
+
+
+                         ┌─────────────────────┐
+Microphone ──────────────► MicrophoneCapturer  │
+                         │ AVAudioEngine       │
+                         └──────────┬──────────┘
+                                    │ PCM16 / 24 kHz
+                                    ▼
+                           Realtime session
+                                    │
+                            Chinese → English
+                                    │
+                                    ▼
+                               Share View
 ```
 
-The goal is time-to-readable-translation, not archival transcription.
+The production app sends audio directly from the macOS client to OpenAI. There is no SpeakAcross backend in the current architecture.
 
-## Bring Your Own Key
+## Privacy model
 
-Users provide their own OpenAI API key. The app should store it in Apple Keychain and never expose it in the screen-shared subtitle window, repository files, or UserDefaults.
+SpeakAcross is built around a local-first application architecture.
 
-## Privacy defaults
+By default:
 
-- no audio recording to disk
-- no persistent transcript history
-- no SpeakAcross account
-- no analytics requirement
-- no transcript backend
-- API key stays on device
+- audio is not recorded to disk
+- transcripts are not persisted after the session
+- there is no SpeakAcross account
+- there is no transcript backend
+- there is no analytics requirement
+- the OpenAI API key is stored locally in Apple Keychain
+- the API key is never shown in Share View
+- SpeakAcross excludes its own process audio from system-audio capture
 
-Audio or text sent to OpenAI is governed by the user's own OpenAI API account and applicable OpenAI policies.
+Audio and text sent to OpenAI are governed by the user's OpenAI account and applicable OpenAI policies.
 
 See [Docs/privacy.md](Docs/privacy.md).
 
-## Product principles
+## Requirements
 
-- bilingual communication, not interview automation
-- original text and translation appear together
-- preserve names, numbers, technical terms, acronyms, and code-switching
-- never invent content that was not spoken
-- low latency over literary translation
-- partial captions may update; finalized captions should remain stable
-- meeting software remains untouched
-- no recording by default
-
-## Platforms
-
-macOS is the primary MVP platform because it can capture both microphone and system/meeting audio. iOS is planned, but feature parity is not assumed.
-
-## Repository layout
-
-```text
-SpeakAcross/
-├── Apps/
-│   ├── macOS/
-│   └── iOS/
-├── Packages/
-├── Sources/
-├── Tests/
-├── Docs/
-│   ├── architecture.md
-│   └── privacy.md
-├── CONTRIBUTING.md
-├── SECURITY.md
-├── LICENSE
-└── README.md
-```
-
-## Technical baseline
-
-- Swift 6
-- SwiftUI
 - macOS 14+
-- AVFoundation
-- ScreenCaptureKit
-- OpenAI Realtime API
-- URLSession / WebSocket
-- Apple Keychain
+- Xcode / Swift 6 toolchain
+- an OpenAI API key
+- Screen & System Audio Recording permission
+- Microphone permission
 
-## Non-goals for MVP
+For meetings, headphones are strongly recommended to reduce acoustic feedback and accidental recapture.
 
-- automatic interview answers
-- AI-generated talking points
-- voice cloning
-- TTS voice replacement
-- meeting recording
-- long-term transcript storage
-- account or billing system
-- multi-provider abstraction
-- Zoom / Teams / Meet plugins
+## Quick start
 
-## Development
-
-For local development, copy the example environment file:
+Clone the repository, enter the project directory, and create a local environment file:
 
 ```sh
+cd speakacross
 cp .env.example .env
 ```
 
-Then set `OPENAI_API_KEY` in `.env`. The local `.env` file is ignored by Git.
+Add your OpenAI API key to `.env`:
 
-Development configuration precedence is:
+```text
+OPENAI_API_KEY=your_key_here
+```
+
+Build and launch the macOS app:
+
+```sh
+swift build
+swift test
+./Scripts/build-macos-app.sh
+open SpeakAcross.app
+```
+
+On first launch, macOS may ask for:
+
+1. Microphone access
+2. Screen & System Audio Recording access
+
+After changing a privacy permission, fully quit and reopen SpeakAcross.
+
+## Using SpeakAcross in a meeting
+
+1. Open SpeakAcross.
+2. Choose **Accurate** unless you specifically need Fast mode.
+3. Select the microphone you want to use.
+4. Click **Start Meeting**.
+5. Start or join Zoom, Google Meet, Teams, or another meeting app.
+6. Watch **My View** for remote English → Traditional Chinese.
+7. Click **Open Share View**.
+8. Share only the Share View window in your meeting app.
+9. Speak Chinese normally; the other participant reads the English translation.
+
+The system-audio meter in My View indicates whether SpeakAcross is receiving remote meeting audio. The microphone meter indicates whether your local speech path is active.
+
+## Bring Your Own Key
+
+SpeakAcross currently uses a BYOK model.
+
+Configuration precedence during development is:
 
 ```text
 shell environment -> .env -> macOS Keychain
 ```
 
-Supported development variables:
+The production UI can store the API key in Apple Keychain.
+
+The local `.env` file is ignored by Git and should never be committed.
+
+## API usage and cost controls
+
+Realtime speech APIs can incur noticeable cost during long development sessions, so SpeakAcross includes several protections.
+
+### Fast mode silence gating
+
+Fast mode applies a client-side PCM silence gate before audio is sent to the translation/transcription sessions.
+
+Default tuning:
+
+```text
+SPEAKACROSS_FAST_GATE_DBFS=-48
+SPEAKACROSS_FAST_GATE_PREROLL_MS=250
+SPEAKACROSS_FAST_GATE_HANGOVER_MS=700
+```
+
+The pre-roll preserves the start of speech, while the hangover avoids clipping the end of a phrase.
+
+### Session usage display
+
+The app exposes session usage information in My View.
+
+- Fast mode: actual post-gate API audio duration + estimated cost for the default models
+- Accurate mode: estimated cost using server-reported Realtime token usage and transcription duration
+
+If custom models are configured, SpeakAcross avoids showing a misleading fixed-price estimate.
+
+### Paid automated tests
+
+Automated E2E tests use real OpenAI APIs. They are blocked unless you explicitly opt in:
+
+```sh
+SPEAKACROSS_ALLOW_PAID_E2E=1 ./Scripts/run-full-e2e.sh
+```
+
+This guard also exists in the E2E executable itself so accidentally bypassing the shell wrapper does not silently start a paid run.
+
+## Development configuration
+
+`.env.example` documents the supported development settings:
 
 ```text
 OPENAI_API_KEY=
@@ -139,65 +282,201 @@ SPEAKACROSS_FAST_GATE_PREROLL_MS=250
 SPEAKACROSS_FAST_GATE_HANGOVER_MS=700
 ```
 
-Fast mode applies a local PCM silence gate before audio is sent to the duration-billed translation and transcription APIs. The defaults keep a short pre-roll and hangover so speech edges are preserved while long idle periods are skipped.
-
-You can also point to a different file with `SPEAKACROSS_ENV_FILE=/path/to/file`.
+You can use a different environment file:
 
 ```sh
-swift build
-swift test
-./Scripts/build-macos-app.sh
-open SpeakAcross.app
+SPEAKACROSS_ENV_FILE=/path/to/file ./Scripts/build-macos-app.sh
 ```
 
-## Interactive E2E test
+## Testing
 
-SpeakAcross includes a developer-only English interviewer agent for exercising the real microphone and system-audio loop.
+### Unit tests
 
-Run ./Scripts/run-e2e-agent.sh while SpeakAcross is active.
+```sh
+swift test
+```
 
-You speak Chinese. The agent listens through the microphone and responds only in spoken English through macOS system audio. Running SpeakAcross at the same time therefore validates both translation directions end to end.
+The core tests cover caption buffering, source/translation alignment, Traditional Chinese normalization, session recovery, audio-device selection, and Fast-mode silence gating.
 
-See Docs/e2e-testing.md.
+### Interactive microphone + system-audio E2E
 
-## Automated full E2E test
+SpeakAcross includes a developer-only English interviewer agent for exercising the real hardware loop.
 
-For repeatable development regression, SpeakAcross also includes a fully autonomous AI-to-AI test. An English Realtime agent and a Traditional Chinese Realtime agent talk to each other using real PCM audio while the production SpeakAcross translation client validates both translation directions and turn segmentation.
+```sh
+./Scripts/run-e2e-agent.sh
+```
+
+Run SpeakAcross at the same time. The interviewer listens through your selected microphone and responds in spoken English through the selected output device.
+
+This validates:
+
+```text
+Chinese microphone
+    ↓
+SpeakAcross Share View
+    ↓
+English translation
+
+English AI audio
+    ↓
+macOS system audio
+    ↓
+SpeakAcross My View
+    ↓
+Traditional Chinese translation
+```
+
+See [Docs/e2e-testing.md](Docs/e2e-testing.md).
+
+### Autonomous full E2E
 
 ```sh
 SPEAKACROSS_ALLOW_PAID_E2E=1 ./Scripts/run-full-e2e.sh
 ```
 
+The autonomous harness runs two AI participants through the production translation path and checks both translation directions, source transcript presence, turn segmentation, alignment, and latency.
+
 See [Docs/full-e2e.md](Docs/full-e2e.md).
 
-## Semantic golden-set E2E
-
-To check translation meaning rather than only transport and segmentation, run the fixed technical golden set:
+### Semantic golden regression
 
 ```sh
 SPEAKACROSS_ALLOW_PAID_E2E=1 ./Scripts/run-golden-e2e.sh
 ```
 
-For the production Accurate path, including automatic server VAD:
+Accurate-mode server-VAD regression:
 
 ```sh
 SPEAKACROSS_ALLOW_PAID_E2E=1 ./Scripts/run-accurate-vad-e2e.sh
 ```
 
-The golden tests cover technical terminology, numeric fidelity, source-ASR fidelity, Traditional Chinese output, and semantic correctness with a structured judge. See [Docs/golden-e2e.md](Docs/golden-e2e.md).
+The golden set focuses on semantic fidelity, technical terminology, numeric fidelity, source-ASR fidelity, and Traditional Chinese output.
 
-For long-lived Accurate-session validation:
+See [Docs/golden-e2e.md](Docs/golden-e2e.md).
+
+### Soak test
 
 ```sh
-SPEAKACROSS_ALLOW_PAID_E2E=1 SPEAKACROSS_SOAK_REPEAT=10 ./Scripts/run-soak.sh
+SPEAKACROSS_ALLOW_PAID_E2E=1 \
+SPEAKACROSS_SOAK_REPEAT=10 \
+./Scripts/run-soak.sh
 ```
 
-These automated E2E scripts use real OpenAI audio APIs and refuse to run unless the paid-test acknowledgement is set explicitly.
+## Repository structure
 
-## Status
+```text
+.
+├── Sources/
+│   ├── SpeakAcrossApp/          # macOS SwiftUI app
+│   ├── SpeakAcrossCore/         # Realtime sessions, captions, shared logic
+│   ├── SpeakAcrossE2EAgent/     # interactive English interviewer
+│   └── SpeakAcrossFullE2E/      # autonomous E2E harness
+├── Tests/
+│   └── SpeakAcrossCoreTests/
+├── Scripts/
+│   ├── build-macos-app.sh
+│   ├── build-e2e-agent-app.sh
+│   ├── run-e2e-agent.sh
+│   ├── run-full-e2e.sh
+│   ├── run-golden-e2e.sh
+│   └── run-soak.sh
+├── Docs/
+├── Package.swift
+├── LICENSE
+└── README.md
+```
 
-Alpha MVP. Both translation modes are covered by automated end-to-end regression; real microphone, ScreenCaptureKit, AirPods, and third-party meeting-app acceptance remain separate hardware tests.
+## Design principles
+
+- communication first, not meeting automation
+- translation should never fabricate unspoken content
+- preserve names, numbers, negation, technical terms, and code-switching
+- original transcript remains available for verification
+- private listening UI and public sharing UI stay separate
+- no audio recording by default
+- no persistent transcript storage by default
+- no hidden backend dependency
+- meeting software remains untouched
+
+## Non-goals
+
+SpeakAcross is not intended to provide:
+
+- automatic interview answers
+- AI-generated talking points
+- voice cloning
+- TTS voice replacement
+- meeting recording
+- permanent transcript archives
+- meeting bots that join calls on your behalf
+- a Zoom / Meet / Teams plugin
+- an account or billing platform
+
+## Current status
+
+**Alpha / active development.**
+
+Currently validated:
+
+- native macOS application
+- microphone capture
+- ScreenCaptureKit system-audio capture
+- English → Traditional Chinese Accurate translation
+- Chinese → English Accurate translation
+- Fast streaming path
+- separate My View and Share View
+- external USB audio-device selection
+- system/microphone activity meters
+- live API usage / cost estimation
+- session recovery
+- automated full E2E regression
+- semantic golden regression
+
+Areas that still need broader real-world validation include long meetings, different microphones/output devices, more meeting applications, more accents, noisy environments, and caption segmentation across natural speech pauses.
+
+## Roadmap
+
+Near-term areas of work:
+
+- improve subtitle readability without over-merging natural speech turns
+- broader Zoom / Google Meet / Teams acceptance testing
+- better handling of noisy rooms and low-volume system audio
+- configurable terminology / glossary profiles
+- clearer session diagnostics
+- packaging and distribution outside a development build
+- iOS exploration where platform capabilities allow it
+
+## Contributing
+
+Issues, bug reports, test cases, and pull requests are welcome.
+
+Useful contributions include:
+
+- real-world meeting-app compatibility reports
+- audio-device compatibility reports
+- translation regressions with reproducible source phrases
+- Swift / SwiftUI improvements
+- Realtime API robustness
+- caption segmentation and readability improvements
+- privacy and security review
+- documentation
+
+Please avoid including API keys, private transcripts, or sensitive meeting audio in bug reports.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) if present for project-specific contribution guidance.
+
+## Security
+
+Do not commit API keys or `.env` files.
+
+If you discover a vulnerability that could expose credentials, audio, transcripts, or other private meeting data, please avoid posting sensitive exploitation details publicly until the issue can be reviewed.
+
+See [SECURITY.md](SECURITY.md) if present.
 
 ## License
 
-Apache License 2.0.
+SpeakAcross is licensed under the [Apache License 2.0](LICENSE).
+
+## Disclaimer
+
+SpeakAcross is experimental software. Translation and transcription can be incomplete or incorrect. Do not rely on it as the sole source of truth for legal, medical, financial, safety-critical, or other high-stakes communication.
