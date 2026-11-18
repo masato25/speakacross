@@ -150,6 +150,7 @@ final class MeetingSessionController: ObservableObject {
     @Published private(set) var accurateTranscriptionCostUSD: Double = 0
     @Published private(set) var lastTranscriptURL: URL?
     @Published private(set) var transcriptError: String?
+    @Published private(set) var sessionTranscriptEntries: [MeetingTranscriptEntry] = []
     @Published var selectedInputUID: String = ""
     @Published var selectedOutputUID: String = ""
     @Published var mode: TranslationMode = .accurate
@@ -165,7 +166,12 @@ final class MeetingSessionController: ObservableObject {
     private var localAccurateSession: OpenAIRealtimeInterpreterSession?
     private var systemAudio: SystemAudioCapturer?
     private var microphone: MicrophoneCapturer?
-    private var remoteTimeline = AlignedCaptionTimeline(speaker: .remote)
+    private var remoteTimeline = AlignedCaptionTimeline(
+        speaker: .remote,
+        sourceGapThresholdMilliseconds: 1_800,
+        maximumSegmentDurationMilliseconds: 6_000,
+        historyLimit: 12
+    )
     private var localTimeline = AlignedCaptionTimeline(speaker: .local)
     private var remoteAccurateBuffer = CaptionTurnBuffer(speaker: .remote)
     private var localAccurateBuffer = CaptionTurnBuffer(speaker: .local)
@@ -427,17 +433,14 @@ final class MeetingSessionController: ObservableObject {
                     "DeFi"
                 ]
 
-                let remote = OpenAIRealtimeInterpreterSession(
+                let remote = OpenAIRealtimeTranslationSession(
                     apiKey: key,
-                    model: accurateModel,
+                    targetLanguage: activeListeningTargetLanguage.realtimeTargetCode,
+                    model: translationModel,
                     transcriptionModel: transcriptionModel,
-                    targetLanguageName: activeListeningTargetLanguage.interpreterTargetName,
-                    transcriptionPrompt: activeListeningSourceLanguage.transcriptionPrompt,
-                    transcriptionKeywords: keywords,
-                    transcriptionLanguages: activeListeningSourceLanguage.transcriptionLanguages,
                     normalizeOriginalTraditionalChinese: activeListeningSourceLanguage.shouldNormalizeTraditionalChinese,
-                    normalizeTranslationTraditionalChinese: activeListeningTargetLanguage.shouldNormalizeTraditionalChinese,
-                    vadSilenceDurationMilliseconds: activeListeningVADSilenceMilliseconds
+                    normalizeTraditionalChinese: activeListeningTargetLanguage.shouldNormalizeTraditionalChinese,
+                    silenceGate: makeFastSilenceGate()
                 )
                 let local = OpenAIRealtimeInterpreterSession(
                     apiKey: key,
@@ -452,12 +455,12 @@ final class MeetingSessionController: ObservableObject {
                     vadSilenceDurationMilliseconds: activeSpeakingVADSilenceMilliseconds
                 )
 
-                wireAccurate(remote, speaker: .remote)
+                wireFast(remote, speaker: .remote)
                 wireAccurate(local, speaker: .local)
                 try remote.connect()
                 try local.connect()
 
-                remoteAccurateSession = remote
+                remoteFastSession = remote
                 localAccurateSession = local
                 remoteRelay.update { [weak remote] data in
                     remote?.appendPCM16_24k(data)
@@ -699,17 +702,14 @@ final class MeetingSessionController: ObservableObject {
 
         case .accurate:
             let keywords = Self.technicalKeywords
-            let remote = OpenAIRealtimeInterpreterSession(
+            let remote = OpenAIRealtimeTranslationSession(
                 apiKey: activeAPIKey,
-                model: activeAccurateModel,
+                targetLanguage: activeListeningTargetLanguage.realtimeTargetCode,
+                model: activeTranslationModel,
                 transcriptionModel: activeTranscriptionModel,
-                targetLanguageName: activeListeningTargetLanguage.interpreterTargetName,
-                transcriptionPrompt: activeListeningSourceLanguage.transcriptionPrompt,
-                transcriptionKeywords: keywords,
-                transcriptionLanguages: activeListeningSourceLanguage.transcriptionLanguages,
                 normalizeOriginalTraditionalChinese: activeListeningSourceLanguage.shouldNormalizeTraditionalChinese,
-                normalizeTranslationTraditionalChinese: activeListeningTargetLanguage.shouldNormalizeTraditionalChinese,
-                vadSilenceDurationMilliseconds: activeListeningVADSilenceMilliseconds
+                normalizeTraditionalChinese: activeListeningTargetLanguage.shouldNormalizeTraditionalChinese,
+                silenceGate: makeFastSilenceGate()
             )
             let local = OpenAIRealtimeInterpreterSession(
                 apiKey: activeAPIKey,
@@ -723,11 +723,11 @@ final class MeetingSessionController: ObservableObject {
                 normalizeTranslationTraditionalChinese: activeSpeakingTargetLanguage.shouldNormalizeTraditionalChinese,
                 vadSilenceDurationMilliseconds: activeSpeakingVADSilenceMilliseconds
             )
-            wireAccurate(remote, speaker: .remote) { readiness.markRemoteReady() }
+            wireFast(remote, speaker: .remote) { readiness.markRemoteReady() }
             wireAccurate(local, speaker: .local) { readiness.markLocalReady() }
             try remote.connect()
             try local.connect()
-            remoteAccurateSession = remote
+            remoteFastSession = remote
             localAccurateSession = local
             remoteRelay.update { [weak remote] data in remote?.appendPCM16_24k(data) }
             localRelay.update { [weak local] data in local?.appendPCM16_24k(data) }
@@ -743,13 +743,12 @@ final class MeetingSessionController: ObservableObject {
             publishRemoteTurnState()
             publishLocalTurnState()
         } else {
-            if let caption = remoteAccurateBuffer.finalizeCurrent() {
-                recordTranscriptCaption(caption)
-            }
+            remoteTimeline.finalizeCurrent()
+            recordTranscriptCaption(remoteTimeline.current)
             if let caption = localAccurateBuffer.finalizeCurrent() {
                 recordTranscriptCaption(caption)
             }
-            publishAccurateState(speaker: .remote)
+            publishRemoteTurnState()
             publishAccurateState(speaker: .local)
         }
     }
@@ -845,7 +844,7 @@ final class MeetingSessionController: ObservableObject {
             publishRemoteTurnState()
             publishLocalTurnState()
         } else {
-            publishAccurateState(speaker: .remote)
+            publishRemoteTurnState()
             publishAccurateState(speaker: .local)
         }
     }
@@ -876,13 +875,12 @@ final class MeetingSessionController: ObservableObject {
             publishRemoteTurnState()
             publishLocalTurnState()
         } else {
-            if let caption = remoteAccurateBuffer.finalizeCurrent() {
-                recordTranscriptCaption(caption)
-            }
+            remoteTimeline.finalizeCurrent()
+            recordTranscriptCaption(remoteTimeline.current)
             if let caption = localAccurateBuffer.finalizeCurrent() {
                 recordTranscriptCaption(caption)
             }
-            publishAccurateState(speaker: .remote)
+            publishRemoteTurnState()
             publishAccurateState(speaker: .local)
         }
 
@@ -939,6 +937,7 @@ final class MeetingSessionController: ObservableObject {
             speakingRoute: "\(activeSpeakingSourceLanguage.label) → \(activeSpeakingTargetLanguage.label)"
         )
         transcriptURL = url
+        sessionTranscriptEntries.removeAll(keepingCapacity: true)
         recordedTranscriptCaptionIDs.removeAll(keepingCapacity: true)
         transcriptError = nil
         lastTranscriptURL = nil
@@ -974,7 +973,9 @@ final class MeetingSessionController: ObservableObject {
         guard hasContent else { return }
 
         recordedTranscriptCaptionIDs.insert(caption.id)
-        transcriptDocument?.entries.append(MeetingTranscriptEntry(caption: caption))
+        let entry = MeetingTranscriptEntry(caption: caption)
+        transcriptDocument?.entries.append(entry)
+        sessionTranscriptEntries.append(entry)
         if persist {
             persistTranscript()
         }

@@ -23,6 +23,7 @@ public struct AlignedCaptionTimeline: Equatable, Sendable {
     public let speaker: MeetingSpeaker
     public let sourceGapThresholdMilliseconds: Int
     public let translationLeadToleranceMilliseconds: Int
+    public let maximumSegmentDurationMilliseconds: Int
     public let historyLimit: Int
 
     private var segments: [AlignedCaptionSegment] = []
@@ -33,11 +34,13 @@ public struct AlignedCaptionTimeline: Equatable, Sendable {
         speaker: MeetingSpeaker,
         sourceGapThresholdMilliseconds: Int = 2_400,
         translationLeadToleranceMilliseconds: Int = 800,
+        maximumSegmentDurationMilliseconds: Int = 7_000,
         historyLimit: Int = 40
     ) {
         self.speaker = speaker
         self.sourceGapThresholdMilliseconds = max(400, sourceGapThresholdMilliseconds)
         self.translationLeadToleranceMilliseconds = max(0, translationLeadToleranceMilliseconds)
+        self.maximumSegmentDurationMilliseconds = max(2_000, maximumSegmentDurationMilliseconds)
         self.historyLimit = max(1, historyLimit)
     }
 
@@ -111,7 +114,16 @@ public struct AlignedCaptionTimeline: Equatable, Sendable {
             return false
         }
 
-        return elapsed - lastOriginalElapsedMilliseconds >= sourceGapThresholdMilliseconds
+        if elapsed - lastOriginalElapsedMilliseconds >= sourceGapThresholdMilliseconds {
+            return true
+        }
+
+        if let segmentStart = segments.last?.startElapsedMilliseconds,
+           elapsed - segmentStart >= maximumSegmentDurationMilliseconds {
+            return true
+        }
+
+        return false
     }
 
     private mutating func startSegment(at elapsed: Int?) {

@@ -44,6 +44,38 @@ private final class ShareWindowCoordinator {
     }
 }
 
+@MainActor
+private final class HistoryWindowCoordinator {
+    static let shared = HistoryWindowCoordinator()
+
+    private var window: NSWindow?
+
+    func show(meeting: MeetingSessionController) {
+        if let window {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+
+        let rootView = HistoryView(meeting: meeting)
+            .frame(minWidth: 640, minHeight: 480)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 620),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "SpeakAcross History"
+        window.contentView = NSHostingView(rootView: rootView)
+        window.isReleasedWhenClosed = false
+        window.center()
+        window.makeKeyAndOrderFront(nil)
+        self.window = window
+        NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
 @main
 struct SpeakAcrossApp: App {
     @NSApplicationDelegateAdaptor(SpeakAcrossAppDelegate.self) private var appDelegate
@@ -120,16 +152,12 @@ private struct MyView: View {
     private var remoteContent: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Label("Remote", systemImage: "speaker.wave.2.fill")
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
-
                 Spacer()
 
                 if meeting.state == .running {
                     HStack(spacing: 8) {
                         AudioLevelPill(label: "System", level: meeting.systemAudioLevel)
-                        Text("Listening")
+                        Text(meeting.mode == .accurate ? "Live captions" : "Listening")
                             .font(.caption.weight(.medium))
                             .foregroundStyle(.secondary)
                     }
@@ -143,7 +171,7 @@ private struct MyView: View {
                 translatedPlaceholder: listeningPlaceholder,
                 originalPlaceholder: "Waiting for remote speech…",
                 primaryRole: .primary,
-                originalLabel: "ORIGINAL"
+                originalLabel: ""
             )
 
             HStack(spacing: 8) {
@@ -197,6 +225,12 @@ private struct MyView: View {
 
                 Button("Clear") {
                     meeting.clearCaptions()
+                }
+
+                Button {
+                    HistoryWindowCoordinator.shared.show(meeting: meeting)
+                } label: {
+                    Label("History", systemImage: "clock.arrow.circlepath")
                 }
 
                 if meeting.lastTranscriptURL != nil {
@@ -797,46 +831,162 @@ private struct CaptionTimeline: View {
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 24) {
-                    let visibleHistory = Array(history.suffix(currentHasContent ? 3 : 4))
-                    ForEach(Array(visibleHistory.enumerated()), id: \.element.id) { index, caption in
-                        let isPrimary = !currentHasContent && index == visibleHistory.count - 1
-                        FinalizedTurn(
-                            caption: caption,
-                            originalLabel: originalLabel,
-                            isPrimary: isPrimary
+                LazyVStack(alignment: .leading, spacing: 18) {
+                    if allCaptions.isEmpty {
+                        SubtitleText(
+                            text: "",
+                            placeholder: translatedPlaceholder,
+                            role: primaryRole
                         )
+                    } else {
+                        ForEach(Array(allCaptions.enumerated()), id: \.element.id) { index, caption in
+                            TranscriptTurn(
+                                caption: caption,
+                                isCurrent: index == allCaptions.count - 1 && currentHasContent
+                            )
+
+                            if index != allCaptions.count - 1 {
+                                Divider()
+                                    .opacity(0.4)
+                            }
+                        }
                     }
 
-                    if currentHasContent || history.isEmpty {
-                        CurrentTurn(
-                            caption: current,
-                            translatedPlaceholder: translatedPlaceholder,
-                            originalPlaceholder: originalPlaceholder,
-                            primaryRole: primaryRole,
-                            originalLabel: originalLabel
-                        )
-                        .id("current-turn")
-                    } else {
-                        Color.clear
-                            .frame(height: 1)
-                            .id("current-turn")
-                    }
+                    Color.clear
+                        .frame(height: 1)
+                        .id("live-bottom")
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.bottom, 8)
             }
             .onChange(of: history.count) { _, _ in
-                withAnimation(.easeOut(duration: 0.2)) {
-                    proxy.scrollTo("current-turn", anchor: .bottom)
+                proxy.scrollTo("live-bottom", anchor: .bottom)
+            }
+            .onChange(of: current.translatedText) { _, _ in
+                proxy.scrollTo("live-bottom", anchor: .bottom)
+            }
+            .onChange(of: current.originalText) { _, _ in
+                proxy.scrollTo("live-bottom", anchor: .bottom)
+            }
+            .onAppear {
+                DispatchQueue.main.async {
+                    proxy.scrollTo("live-bottom", anchor: .bottom)
                 }
             }
         }
     }
 
+    private var allCaptions: [MeetingCaption] {
+        var captions = history
+        if currentHasContent {
+            captions.append(current)
+        }
+        return captions
+    }
+
     private var currentHasContent: Bool {
         !current.translatedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
         !current.originalText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+}
+
+@MainActor
+private struct HistoryView: View {
+    @ObservedObject var meeting: MeetingSessionController
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Meeting History")
+                        .font(.title2.bold())
+                    Text("Full transcript for the current session")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text("\(meeting.sessionTranscriptEntries.count) turns")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            .padding(20)
+
+            Divider()
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 18) {
+                    if meeting.sessionTranscriptEntries.isEmpty {
+                        Text("No transcript yet.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(meeting.sessionTranscriptEntries, id: \.id) { entry in
+                            VStack(alignment: .leading, spacing: 7) {
+                                Text(entry.speaker == .remote ? "Listening" : "Speaking")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+
+                                if !entry.translatedText.isEmpty {
+                                    Text(entry.translatedText)
+                                        .font(.title3)
+                                        .textSelection(.enabled)
+                                }
+
+                                if !entry.originalText.isEmpty {
+                                    Text(entry.originalText)
+                                        .font(.callout)
+                                        .foregroundStyle(.secondary)
+                                        .textSelection(.enabled)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                            Divider()
+                                .opacity(0.4)
+                        }
+                    }
+                }
+                .padding(20)
+            }
+        }
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+}
+
+private struct TranscriptTurn: View {
+    let caption: MeetingCaption
+    let isCurrent: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !caption.translatedText.isEmpty {
+                Text(caption.translatedText)
+                    .font(.system(size: isCurrent ? 30 : 25, weight: isCurrent ? .medium : .regular))
+                    .foregroundStyle(isCurrent ? .primary : .secondary)
+                    .lineSpacing(5)
+                    .textSelection(.enabled)
+            }
+
+            if !caption.originalText.isEmpty {
+                Text(caption.originalText)
+                    .font(.system(size: isCurrent ? 16 : 14))
+                    .foregroundStyle(isCurrent ? .secondary : .tertiary)
+                    .lineSpacing(3)
+                    .textSelection(.enabled)
+            }
+
+            if isCurrent && caption.translatedText.isEmpty && !caption.originalText.isEmpty {
+                HStack(spacing: 7) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Translating…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 2)
     }
 }
 

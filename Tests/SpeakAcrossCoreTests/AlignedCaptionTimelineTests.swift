@@ -42,6 +42,24 @@ import Testing
     #expect(timeline.current.originalText == "two")
 }
 
+@Test func alignedTimelineStartsNewTurnAfterMaximumDurationWithoutSilenceGap() {
+    var timeline = AlignedCaptionTimeline(
+        speaker: .remote,
+        sourceGapThresholdMilliseconds: 2_400,
+        maximumSegmentDurationMilliseconds: 6_000
+    )
+
+    timeline.appendOriginal(.init(text: "one ", elapsedMilliseconds: 0))
+    timeline.appendOriginal(.init(text: "two ", elapsedMilliseconds: 1_500))
+    timeline.appendOriginal(.init(text: "three ", elapsedMilliseconds: 3_000))
+    timeline.appendOriginal(.init(text: "four ", elapsedMilliseconds: 4_500))
+    timeline.appendOriginal(.init(text: "five", elapsedMilliseconds: 6_100))
+
+    #expect(timeline.history.count == 1)
+    #expect(timeline.history.first?.originalText == "one two three four ")
+    #expect(timeline.current.originalText == "five")
+}
+
 @Test func alignedTimelineCanStartProvisionalTurnFromTranslationBeforeOriginal() {
     var timeline = AlignedCaptionTimeline(speaker: .remote)
 
