@@ -3,6 +3,54 @@ import SpeakAcrossCore
 
 @MainActor
 final class MeetingSessionController: ObservableObject {
+    enum LanguageOption: String, CaseIterable, Identifiable {
+        case english
+        case traditionalChinese
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .english: "English"
+            case .traditionalChinese: "繁體中文"
+            }
+        }
+
+        var realtimeTargetCode: String {
+            switch self {
+            case .english: "en"
+            case .traditionalChinese: "zh"
+            }
+        }
+
+        var transcriptionLanguages: [String] {
+            switch self {
+            case .english: ["en"]
+            case .traditionalChinese: ["zh-tw", "zh"]
+            }
+        }
+
+        var interpreterTargetName: String {
+            switch self {
+            case .english: "natural professional English"
+            case .traditionalChinese: "natural Traditional Chinese used in Taiwan"
+            }
+        }
+
+        var transcriptionPrompt: String {
+            switch self {
+            case .english:
+                "A professional meeting in English. Preserve names, numbers, product terms, company names, and common business vocabulary."
+            case .traditionalChinese:
+                "A professional meeting in Mandarin Chinese with possible English product, company, and business terms."
+            }
+        }
+
+        var shouldNormalizeTraditionalChinese: Bool {
+            self == .traditionalChinese
+        }
+    }
+
     enum TranslationMode: String, CaseIterable, Identifiable {
         case fast
         case accurate
@@ -71,6 +119,10 @@ final class MeetingSessionController: ObservableObject {
     @Published var selectedInputUID: String = ""
     @Published var selectedOutputUID: String = ""
     @Published var mode: TranslationMode = .accurate
+    @Published private(set) var listeningSourceLanguage: LanguageOption = .english
+    @Published private(set) var listeningTargetLanguage: LanguageOption = .traditionalChinese
+    @Published private(set) var speakingSourceLanguage: LanguageOption = .traditionalChinese
+    @Published private(set) var speakingTargetLanguage: LanguageOption = .english
 
     private var remoteFastSession: OpenAIRealtimeTranslationSession?
     private var localFastSession: OpenAIRealtimeTranslationSession?
@@ -96,6 +148,10 @@ final class MeetingSessionController: ObservableObject {
     private var activeFastGateThresholdDecibels = -48.0
     private var activeFastGatePreRollMilliseconds = 250
     private var activeFastGateHangoverMilliseconds = 700
+    private var activeListeningSourceLanguage: LanguageOption = .english
+    private var activeListeningTargetLanguage: LanguageOption = .traditionalChinese
+    private var activeSpeakingSourceLanguage: LanguageOption = .traditionalChinese
+    private var activeSpeakingTargetLanguage: LanguageOption = .english
 
     private static let fastTranslationUSDPerMinute = 0.034
     private static let fastTranscriptionUSDPerMinute = 0.017
@@ -114,7 +170,40 @@ final class MeetingSessionController: ObservableObject {
         let audioPreferences = AudioDevicePreferenceStore.load()
         selectedInputUID = audioPreferences.inputUID ?? ""
         selectedOutputUID = audioPreferences.outputUID ?? ""
+        loadLanguagePreferences()
         refreshAudioDevices()
+    }
+
+    var listeningRouteLabel: String {
+        "\(listeningSourceLanguage.label) → \(listeningTargetLanguage.label)"
+    }
+
+    var speakingRouteLabel: String {
+        "\(speakingSourceLanguage.label) → \(speakingTargetLanguage.label)"
+    }
+
+    func updateListeningSourceLanguage(_ language: LanguageOption) {
+        guard state == .idle || isFailed else { return }
+        listeningSourceLanguage = language
+        saveLanguagePreferences()
+    }
+
+    func updateListeningTargetLanguage(_ language: LanguageOption) {
+        guard state == .idle || isFailed else { return }
+        listeningTargetLanguage = language
+        saveLanguagePreferences()
+    }
+
+    func updateSpeakingSourceLanguage(_ language: LanguageOption) {
+        guard state == .idle || isFailed else { return }
+        speakingSourceLanguage = language
+        saveLanguagePreferences()
+    }
+
+    func updateSpeakingTargetLanguage(_ language: LanguageOption) {
+        guard state == .idle || isFailed else { return }
+        speakingTargetLanguage = language
+        saveLanguagePreferences()
     }
 
     var selectedInputName: String {
@@ -225,6 +314,10 @@ final class MeetingSessionController: ObservableObject {
         activeFastGateHangoverMilliseconds = Int(
             DotEnv.value(for: "SPEAKACROSS_FAST_GATE_HANGOVER_MS") ?? ""
         ) ?? 700
+        activeListeningSourceLanguage = listeningSourceLanguage
+        activeListeningTargetLanguage = listeningTargetLanguage
+        activeSpeakingSourceLanguage = speakingSourceLanguage
+        activeSpeakingTargetLanguage = speakingTargetLanguage
 
         do {
             let remoteSink: @Sendable (Data) -> Void
@@ -234,18 +327,20 @@ final class MeetingSessionController: ObservableObject {
             case .fast:
                 let remote = OpenAIRealtimeTranslationSession(
                     apiKey: key,
-                    targetLanguage: "zh",
+                    targetLanguage: activeListeningTargetLanguage.realtimeTargetCode,
                     model: translationModel,
                     transcriptionModel: transcriptionModel,
-                    normalizeTraditionalChinese: true,
+                    normalizeOriginalTraditionalChinese: activeListeningSourceLanguage.shouldNormalizeTraditionalChinese,
+                    normalizeTraditionalChinese: activeListeningTargetLanguage.shouldNormalizeTraditionalChinese,
                     silenceGate: makeFastSilenceGate()
                 )
                 let local = OpenAIRealtimeTranslationSession(
                     apiKey: key,
-                    targetLanguage: "en",
+                    targetLanguage: activeSpeakingTargetLanguage.realtimeTargetCode,
                     model: translationModel,
                     transcriptionModel: transcriptionModel,
-                    normalizeOriginalTraditionalChinese: true,
+                    normalizeOriginalTraditionalChinese: activeSpeakingSourceLanguage.shouldNormalizeTraditionalChinese,
+                    normalizeTraditionalChinese: activeSpeakingTargetLanguage.shouldNormalizeTraditionalChinese,
                     silenceGate: makeFastSilenceGate()
                 )
 
@@ -284,22 +379,24 @@ final class MeetingSessionController: ObservableObject {
                     apiKey: key,
                     model: accurateModel,
                     transcriptionModel: transcriptionModel,
-                    targetLanguageName: "natural Traditional Chinese used in Taiwan",
-                    transcriptionPrompt: "A professional technical meeting in English about blockchain, DeFi, distributed systems, and software infrastructure.",
+                    targetLanguageName: activeListeningTargetLanguage.interpreterTargetName,
+                    transcriptionPrompt: activeListeningSourceLanguage.transcriptionPrompt,
                     transcriptionKeywords: keywords,
-                    transcriptionLanguages: ["en"],
-                    normalizeTranslationTraditionalChinese: true,
+                    transcriptionLanguages: activeListeningSourceLanguage.transcriptionLanguages,
+                    normalizeOriginalTraditionalChinese: activeListeningSourceLanguage.shouldNormalizeTraditionalChinese,
+                    normalizeTranslationTraditionalChinese: activeListeningTargetLanguage.shouldNormalizeTraditionalChinese,
                     vadSilenceDurationMilliseconds: accurateVADSilenceMilliseconds
                 )
                 let local = OpenAIRealtimeInterpreterSession(
                     apiKey: key,
                     model: accurateModel,
                     transcriptionModel: transcriptionModel,
-                    targetLanguageName: "natural professional English",
-                    transcriptionPrompt: "A professional technical meeting in Mandarin Chinese with English blockchain and software engineering terms.",
+                    targetLanguageName: activeSpeakingTargetLanguage.interpreterTargetName,
+                    transcriptionPrompt: activeSpeakingSourceLanguage.transcriptionPrompt,
                     transcriptionKeywords: keywords,
-                    transcriptionLanguages: ["zh-tw", "en"],
-                    normalizeOriginalTraditionalChinese: true,
+                    transcriptionLanguages: activeSpeakingSourceLanguage.transcriptionLanguages,
+                    normalizeOriginalTraditionalChinese: activeSpeakingSourceLanguage.shouldNormalizeTraditionalChinese,
+                    normalizeTranslationTraditionalChinese: activeSpeakingTargetLanguage.shouldNormalizeTraditionalChinese,
                     vadSilenceDurationMilliseconds: accurateVADSilenceMilliseconds
                 )
 
@@ -517,18 +614,20 @@ final class MeetingSessionController: ObservableObject {
         case .fast:
             let remote = OpenAIRealtimeTranslationSession(
                 apiKey: activeAPIKey,
-                targetLanguage: "zh",
+                targetLanguage: activeListeningTargetLanguage.realtimeTargetCode,
                 model: activeTranslationModel,
                 transcriptionModel: activeTranscriptionModel,
-                normalizeTraditionalChinese: true,
+                normalizeOriginalTraditionalChinese: activeListeningSourceLanguage.shouldNormalizeTraditionalChinese,
+                normalizeTraditionalChinese: activeListeningTargetLanguage.shouldNormalizeTraditionalChinese,
                 silenceGate: makeFastSilenceGate()
             )
             let local = OpenAIRealtimeTranslationSession(
                 apiKey: activeAPIKey,
-                targetLanguage: "en",
+                targetLanguage: activeSpeakingTargetLanguage.realtimeTargetCode,
                 model: activeTranslationModel,
                 transcriptionModel: activeTranscriptionModel,
-                normalizeOriginalTraditionalChinese: true,
+                normalizeOriginalTraditionalChinese: activeSpeakingSourceLanguage.shouldNormalizeTraditionalChinese,
+                normalizeTraditionalChinese: activeSpeakingTargetLanguage.shouldNormalizeTraditionalChinese,
                 silenceGate: makeFastSilenceGate()
             )
             wireFast(remote, speaker: .remote) { readiness.markRemoteReady() }
@@ -546,22 +645,24 @@ final class MeetingSessionController: ObservableObject {
                 apiKey: activeAPIKey,
                 model: activeAccurateModel,
                 transcriptionModel: activeTranscriptionModel,
-                targetLanguageName: "natural Traditional Chinese used in Taiwan",
-                transcriptionPrompt: "A professional technical meeting in English about blockchain, DeFi, distributed systems, and software infrastructure.",
+                targetLanguageName: activeListeningTargetLanguage.interpreterTargetName,
+                transcriptionPrompt: activeListeningSourceLanguage.transcriptionPrompt,
                 transcriptionKeywords: keywords,
-                transcriptionLanguages: ["en"],
-                normalizeTranslationTraditionalChinese: true,
+                transcriptionLanguages: activeListeningSourceLanguage.transcriptionLanguages,
+                normalizeOriginalTraditionalChinese: activeListeningSourceLanguage.shouldNormalizeTraditionalChinese,
+                normalizeTranslationTraditionalChinese: activeListeningTargetLanguage.shouldNormalizeTraditionalChinese,
                 vadSilenceDurationMilliseconds: activeAccurateVADSilenceMilliseconds
             )
             let local = OpenAIRealtimeInterpreterSession(
                 apiKey: activeAPIKey,
                 model: activeAccurateModel,
                 transcriptionModel: activeTranscriptionModel,
-                targetLanguageName: "natural professional English",
-                transcriptionPrompt: "A professional technical meeting in Mandarin Chinese with English blockchain and software engineering terms.",
+                targetLanguageName: activeSpeakingTargetLanguage.interpreterTargetName,
+                transcriptionPrompt: activeSpeakingSourceLanguage.transcriptionPrompt,
                 transcriptionKeywords: keywords,
-                transcriptionLanguages: ["zh-tw", "en"],
-                normalizeOriginalTraditionalChinese: true,
+                transcriptionLanguages: activeSpeakingSourceLanguage.transcriptionLanguages,
+                normalizeOriginalTraditionalChinese: activeSpeakingSourceLanguage.shouldNormalizeTraditionalChinese,
+                normalizeTranslationTraditionalChinese: activeSpeakingTargetLanguage.shouldNormalizeTraditionalChinese,
                 vadSilenceDurationMilliseconds: activeAccurateVADSilenceMilliseconds
             )
             wireAccurate(remote, speaker: .remote) { readiness.markRemoteReady() }
@@ -752,6 +853,34 @@ final class MeetingSessionController: ObservableObject {
         } catch {
             audioDeviceError = error.localizedDescription
         }
+    }
+
+    private func loadLanguagePreferences() {
+        let defaults = UserDefaults.standard
+        if let raw = defaults.string(forKey: "SpeakAcross.listeningSourceLanguage"),
+           let language = LanguageOption(rawValue: raw) {
+            listeningSourceLanguage = language
+        }
+        if let raw = defaults.string(forKey: "SpeakAcross.listeningTargetLanguage"),
+           let language = LanguageOption(rawValue: raw) {
+            listeningTargetLanguage = language
+        }
+        if let raw = defaults.string(forKey: "SpeakAcross.speakingSourceLanguage"),
+           let language = LanguageOption(rawValue: raw) {
+            speakingSourceLanguage = language
+        }
+        if let raw = defaults.string(forKey: "SpeakAcross.speakingTargetLanguage"),
+           let language = LanguageOption(rawValue: raw) {
+            speakingTargetLanguage = language
+        }
+    }
+
+    private func saveLanguagePreferences() {
+        let defaults = UserDefaults.standard
+        defaults.set(listeningSourceLanguage.rawValue, forKey: "SpeakAcross.listeningSourceLanguage")
+        defaults.set(listeningTargetLanguage.rawValue, forKey: "SpeakAcross.listeningTargetLanguage")
+        defaults.set(speakingSourceLanguage.rawValue, forKey: "SpeakAcross.speakingSourceLanguage")
+        defaults.set(speakingTargetLanguage.rawValue, forKey: "SpeakAcross.speakingTargetLanguage")
     }
 
     private func makeFastSilenceGate() -> PCM16SilenceGate {

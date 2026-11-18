@@ -67,6 +67,7 @@ private struct MyView: View {
     @State private var keyError: String?
     @State private var showsConnection = false
     @State private var showsAudio = false
+    @State private var showsSettings = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -79,6 +80,9 @@ private struct MyView: View {
         .background(Color(nsColor: .windowBackgroundColor))
         .task {
             loadAvailableKey()
+        }
+        .sheet(isPresented: $showsSettings) {
+            LanguageSettingsView(meeting: meeting)
         }
     }
 
@@ -94,7 +98,10 @@ private struct MyView: View {
 
             Spacer()
 
-            LanguageRoute(source: "English", target: "繁體中文")
+            LanguageRoute(
+                source: meeting.listeningSourceLanguage.label,
+                target: meeting.listeningTargetLanguage.label
+            )
 
             ModeBadge(mode: meeting.mode)
 
@@ -133,7 +140,7 @@ private struct MyView: View {
             CaptionTimeline(
                 history: meeting.remoteHistory,
                 current: meeting.remoteCaption,
-                translatedPlaceholder: "對方的中文翻譯會顯示在這裡…",
+                translatedPlaceholder: listeningPlaceholder,
                 originalPlaceholder: "Waiting for remote speech…",
                 primaryRole: .primary,
                 originalLabel: "ORIGINAL"
@@ -141,7 +148,7 @@ private struct MyView: View {
 
             HStack(spacing: 8) {
                 Image(systemName: "arrow.up.right.square")
-                Text("Your Chinese speech is translated to English in Share View.")
+                Text("Your \(meeting.speakingSourceLanguage.label) speech is translated to \(meeting.speakingTargetLanguage.label) in Share View.")
             }
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -191,6 +198,14 @@ private struct MyView: View {
                 Button("Clear") {
                     meeting.clearCaptions()
                 }
+
+                Button {
+                    showsSettings = true
+                } label: {
+                    Label("Settings", systemImage: "gearshape")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
 
                 Spacer()
 
@@ -286,6 +301,10 @@ private struct MyView: View {
     private func formatDuration(_ seconds: Double) -> String {
         let whole = max(0, Int(seconds.rounded()))
         return String(format: "%d:%02d", whole / 60, whole % 60)
+    }
+
+    private var listeningPlaceholder: String {
+        "Remote \(meeting.listeningTargetLanguage.label) translation will appear here…"
     }
 
     private var connectionPanel: some View {
@@ -482,7 +501,10 @@ private struct ShareView: View {
                 AudioLevelPill(label: "Mic", level: meeting.inputLevel)
             }
 
-            LanguageRoute(source: "中文", target: "English")
+            LanguageRoute(
+                source: meeting.speakingSourceLanguage.label,
+                target: meeting.speakingTargetLanguage.label
+            )
             StatusBadge(state: meeting.state)
         }
         .padding(.horizontal, 22)
@@ -494,13 +516,129 @@ private struct ShareView: View {
             ShareCaptionTimeline(
                 history: meeting.localHistory,
                 current: meeting.localCaption,
-                translatedPlaceholder: "Your English translation will appear here…",
+                translatedPlaceholder: "Your \(meeting.speakingTargetLanguage.label) translation will appear here…",
                 isRunning: meeting.state == .running
             )
         }
         .padding(.horizontal, 30)
         .padding(.vertical, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+@MainActor
+private struct LanguageSettingsView: View {
+    @ObservedObject var meeting: MeetingSessionController
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Language Settings")
+                        .font(.title2.bold())
+                    Text("Configure the language direction for what you hear and what you speak.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Done") { dismiss() }
+                    .keyboardShortcut(.defaultAction)
+            }
+
+            languageDirectionSection(
+                title: "Listening",
+                subtitle: "macOS system audio / other participant",
+                source: Binding(
+                    get: { meeting.listeningSourceLanguage },
+                    set: { meeting.updateListeningSourceLanguage($0) }
+                ),
+                target: Binding(
+                    get: { meeting.listeningTargetLanguage },
+                    set: { meeting.updateListeningTargetLanguage($0) }
+                )
+            )
+
+            languageDirectionSection(
+                title: "Speaking",
+                subtitle: "your microphone / Share View",
+                source: Binding(
+                    get: { meeting.speakingSourceLanguage },
+                    set: { meeting.updateSpeakingSourceLanguage($0) }
+                ),
+                target: Binding(
+                    get: { meeting.speakingTargetLanguage },
+                    set: { meeting.updateSpeakingTargetLanguage($0) }
+                )
+            )
+
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "info.circle")
+                Text("Language settings are locked while a meeting is running. Stop the meeting before changing them.")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+            Spacer(minLength: 0)
+        }
+        .padding(24)
+        .frame(width: 560, height: 390)
+    }
+
+    @ViewBuilder
+    private func languageDirectionSection(
+        title: String,
+        subtitle: String,
+        source: Binding<MeetingSessionController.LanguageOption>,
+        target: Binding<MeetingSessionController.LanguageOption>
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.headline)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Original language")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Picker("Original language", selection: source) {
+                        ForEach(MeetingSessionController.LanguageOption.allCases) { language in
+                            Text(language.label).tag(language)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity)
+                }
+
+                Image(systemName: "arrow.right")
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 20)
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Translation language")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Picker("Translation language", selection: target) {
+                        ForEach(MeetingSessionController.LanguageOption.allCases) { language in
+                            Text(language.label).tag(language)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(maxWidth: .infinity)
+                }
+            }
+            .disabled(meeting.state == .running || meeting.state.isBusy)
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
     }
 }
 
