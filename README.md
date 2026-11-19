@@ -1,5 +1,7 @@
 # SpeakAcross
 
+English | [繁體中文](README-TW.md)
+
 **SpeakAcross is an open-source, native macOS bilingual meeting subtitle app for real-time English ↔ Traditional / Simplified Chinese communication.**
 
 <p align="center">
@@ -20,6 +22,8 @@ The private **My View** helps you understand the other side (with a separate **H
 SpeakAcross is currently a macOS alpha focused on live communication rather than recording, meeting notes, or AI-generated answers.
 
 ## Why SpeakAcross?
+
+In the AI era, cross-language communication shouldn't still be a barrier. Everyone should be able to speak naturally in their own native language and understand each other without friction.
 
 Most live-caption tools assume everyone wants to see the same transcript. That breaks down in bilingual meetings where each side needs something different.
 
