@@ -935,22 +935,71 @@ private struct CaptionTimeline: View {
 
 @MainActor
 private struct HistoryView: View {
+    enum Section: String, CaseIterable, Identifiable {
+        case listening
+        case speaking
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .listening: "Listening"
+            case .speaking: "Speaking"
+            }
+        }
+
+        var speaker: MeetingSpeaker {
+            switch self {
+            case .listening: .remote
+            case .speaking: .local
+            }
+        }
+    }
+
     @ObservedObject var meeting: MeetingSessionController
+    @State private var selectedSection: Section = .listening
+
+    private var listeningEntries: [MeetingTranscriptEntry] {
+        meeting.sessionTranscriptEntries.filter { $0.speaker == .remote }
+    }
+
+    private var speakingEntries: [MeetingTranscriptEntry] {
+        meeting.sessionTranscriptEntries.filter { $0.speaker == .local }
+    }
+
+    private var filteredEntries: [MeetingTranscriptEntry] {
+        selectedSection == .listening ? listeningEntries : speakingEntries
+    }
+
+    private var activeRouteLabel: String {
+        selectedSection == .listening ? meeting.listeningRouteLabel : meeting.speakingRouteLabel
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
+            HStack(spacing: 16) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Meeting History")
                         .font(.title2.bold())
-                    Text("Full transcript for the current session")
+                    Text(activeRouteLabel)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+
                 Spacer()
-                Text("\(meeting.sessionTranscriptEntries.count) turns")
+
+                Picker("Section", selection: $selectedSection) {
+                    Text("Listening (\(listeningEntries.count))").tag(Section.listening)
+                    Text("Speaking (\(speakingEntries.count))").tag(Section.speaking)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(width: 240)
+
+                Text("\(filteredEntries.count) turns")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
+                    .frame(minWidth: 56, alignment: .trailing)
             }
             .padding(20)
 
@@ -958,16 +1007,14 @@ private struct HistoryView: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 18) {
-                    if meeting.sessionTranscriptEntries.isEmpty {
-                        Text("No transcript yet.")
+                    if filteredEntries.isEmpty {
+                        Text(selectedSection == .listening
+                            ? "No listening transcript yet."
+                            : "No speaking transcript yet.")
                             .foregroundStyle(.secondary)
                     } else {
-                        ForEach(meeting.sessionTranscriptEntries, id: \.id) { entry in
+                        ForEach(filteredEntries, id: \.id) { entry in
                             VStack(alignment: .leading, spacing: 7) {
-                                Text(entry.speaker == .remote ? "Listening" : "Speaking")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.tertiary)
-
                                 if !entry.translatedText.isEmpty {
                                     Text(entry.translatedText)
                                         .font(.title3)
