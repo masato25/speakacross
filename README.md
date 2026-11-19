@@ -208,6 +208,10 @@ After changing a privacy permission, fully quit and reopen SpeakAcross.
 
 ## Using SpeakAcross in a meeting
 
+<p align="center">
+  <img src="Docs/assets/speakacross-meeting-scenario.png" alt="Using SpeakAcross alongside Zoom, Google Meet, or Teams by sharing only Share View while keeping My View private" width="100%" />
+</p>
+
 1. Open SpeakAcross.
 2. Choose **Accurate** unless you specifically need Fast mode.
 3. Select the microphone you want to use.

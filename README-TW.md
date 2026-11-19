@@ -122,6 +122,10 @@ open -n ./SpeakAcross.app
 
 ## 會議中使用方式
 
+<p align="center">
+  <img src="Docs/assets/speakacross-meeting-scenario.png" alt="在 Zoom、Google Meet 或 Teams 會議中僅分享 SpeakAcross Share View 視窗讓對方閱讀翻譯字幕，同時保留私密 My View 的使用示意" width="100%" />
+</p>
+
 1. 開啟 SpeakAcross，在 **Audio** 確認麥克風與輸出裝置，並在 **Settings** 設定好 Listening / Speaking 語言方向。
 2. 點擊 **Start Meeting**。
 3. 加入 Zoom、Google Meet、Teams 或其他視訊會議。
