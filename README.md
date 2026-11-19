@@ -170,6 +170,9 @@ For meetings, headphones are strongly recommended to reduce acoustic feedback an
 
 ## Quick start
 
+> For full configuration, permissions, and troubleshooting details, see [Setup & Launch Guide](Docs/setup-and-launch.md).  
+> Want an LLM coding assistant (Claude Code, Codex, Cursor, Antigravity, etc.) to configure and launch it for you? Point it to [Agent.md](Agent.md).
+
 Clone the repository, enter the project directory, and create a local environment file:
 
 ```sh
