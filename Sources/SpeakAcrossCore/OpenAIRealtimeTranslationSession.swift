@@ -40,6 +40,8 @@ public final class OpenAIRealtimeTranslationSession: NSObject, URLSessionWebSock
     private let transcriptionModel: String
     private let normalizeOriginalTraditionalChinese: Bool
     private let normalizeTraditionalChinese: Bool
+    private let normalizeOriginalSimplifiedChinese: Bool
+    private let normalizeSimplifiedChinese: Bool
     private let silenceGate: PCM16SilenceGate?
 
     private var urlSession: URLSession?
@@ -58,6 +60,8 @@ public final class OpenAIRealtimeTranslationSession: NSObject, URLSessionWebSock
         transcriptionModel: String = "gpt-live-transcribe",
         normalizeOriginalTraditionalChinese: Bool = false,
         normalizeTraditionalChinese: Bool = false,
+        normalizeOriginalSimplifiedChinese: Bool = false,
+        normalizeSimplifiedChinese: Bool = false,
         silenceGate: PCM16SilenceGate? = nil
     ) {
         self.apiKey = apiKey
@@ -66,6 +70,8 @@ public final class OpenAIRealtimeTranslationSession: NSObject, URLSessionWebSock
         self.transcriptionModel = transcriptionModel
         self.normalizeOriginalTraditionalChinese = normalizeOriginalTraditionalChinese
         self.normalizeTraditionalChinese = normalizeTraditionalChinese
+        self.normalizeOriginalSimplifiedChinese = normalizeOriginalSimplifiedChinese
+        self.normalizeSimplifiedChinese = normalizeSimplifiedChinese
         self.silenceGate = silenceGate
         super.init()
     }
@@ -243,9 +249,12 @@ public final class OpenAIRealtimeTranslationSession: NSObject, URLSessionWebSock
 
         case "session.input_transcript.delta":
             if let delta = object["delta"] as? String {
-                let normalized = normalizeOriginalTraditionalChinese
+                var normalized = normalizeOriginalTraditionalChinese
                     ? TraditionalChineseText.normalize(delta)
                     : delta
+                if normalizeOriginalSimplifiedChinese {
+                    normalized = SimplifiedChineseText.normalize(normalized)
+                }
                 let event = RealtimeTranscriptDelta(
                     text: normalized,
                     elapsedMilliseconds: silenceGate?.mapElapsedMilliseconds(object["elapsed_ms"] as? Int)
@@ -257,9 +266,12 @@ public final class OpenAIRealtimeTranslationSession: NSObject, URLSessionWebSock
 
         case "session.output_transcript.delta":
             if let delta = object["delta"] as? String {
-                let normalized = normalizeTraditionalChinese
+                var normalized = normalizeTraditionalChinese
                     ? TraditionalChineseText.normalize(delta)
                     : delta
+                if normalizeSimplifiedChinese {
+                    normalized = SimplifiedChineseText.normalize(normalized)
+                }
                 let event = RealtimeTranscriptDelta(
                     text: normalized,
                     elapsedMilliseconds: silenceGate?.mapElapsedMilliseconds(object["elapsed_ms"] as? Int)

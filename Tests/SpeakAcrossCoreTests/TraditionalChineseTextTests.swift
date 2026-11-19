@@ -13,3 +13,7 @@ import Testing
     #expect(TraditionalChineseText.isTraditionalScript("網關與服務商"))
     #expect(!TraditionalChineseText.isTraditionalScript("网关与服务商"))
 }
+
+@Test func simplifiedChineseNormalizerConvertsTraditionalScript() {
+    #expect(SimplifiedChineseText.normalize("繁體中文測試與 English RPC") == "繁体中文测试与 English RPC")
+}

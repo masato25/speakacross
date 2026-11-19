@@ -11,3 +11,11 @@ public enum TraditionalChineseText {
         normalize(text) == text
     }
 }
+
+public enum SimplifiedChineseText {
+    private static let hantToHans = StringTransform("Hant-Hans")
+
+    public static func normalize(_ text: String) -> String {
+        text.applyingTransform(hantToHans, reverse: false) ?? text
+    }
+}

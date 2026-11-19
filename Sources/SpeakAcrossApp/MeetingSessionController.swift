@@ -38,6 +38,7 @@ final class MeetingSessionController: ObservableObject {
     enum LanguageOption: String, CaseIterable, Identifiable {
         case english
         case traditionalChinese
+        case simplifiedChinese
 
         var id: String { rawValue }
 
@@ -45,13 +46,14 @@ final class MeetingSessionController: ObservableObject {
             switch self {
             case .english: "English"
             case .traditionalChinese: "繁體中文"
+            case .simplifiedChinese: "簡體中文"
             }
         }
 
         var realtimeTargetCode: String {
             switch self {
             case .english: "en"
-            case .traditionalChinese: "zh"
+            case .traditionalChinese, .simplifiedChinese: "zh"
             }
         }
 
@@ -59,6 +61,7 @@ final class MeetingSessionController: ObservableObject {
             switch self {
             case .english: ["en"]
             case .traditionalChinese: ["zh-tw", "zh"]
+            case .simplifiedChinese: ["zh-cn", "zh"]
             }
         }
 
@@ -66,6 +69,7 @@ final class MeetingSessionController: ObservableObject {
             switch self {
             case .english: "natural professional English"
             case .traditionalChinese: "natural Traditional Chinese used in Taiwan"
+            case .simplifiedChinese: "natural Simplified Chinese"
             }
         }
 
@@ -73,13 +77,17 @@ final class MeetingSessionController: ObservableObject {
             switch self {
             case .english:
                 "A professional meeting in English. Preserve names, numbers, product terms, company names, and common business vocabulary."
-            case .traditionalChinese:
+            case .traditionalChinese, .simplifiedChinese:
                 "A professional meeting in Mandarin Chinese with possible English product, company, and business terms."
             }
         }
 
         var shouldNormalizeTraditionalChinese: Bool {
             self == .traditionalChinese
+        }
+
+        var shouldNormalizeSimplifiedChinese: Bool {
+            self == .simplifiedChinese
         }
     }
 
@@ -393,6 +401,8 @@ final class MeetingSessionController: ObservableObject {
                     transcriptionModel: transcriptionModel,
                     normalizeOriginalTraditionalChinese: activeListeningSourceLanguage.shouldNormalizeTraditionalChinese,
                     normalizeTraditionalChinese: activeListeningTargetLanguage.shouldNormalizeTraditionalChinese,
+                    normalizeOriginalSimplifiedChinese: activeListeningSourceLanguage.shouldNormalizeSimplifiedChinese,
+                    normalizeSimplifiedChinese: activeListeningTargetLanguage.shouldNormalizeSimplifiedChinese,
                     silenceGate: makeFastSilenceGate()
                 )
                 let local = OpenAIRealtimeTranslationSession(
@@ -402,6 +412,8 @@ final class MeetingSessionController: ObservableObject {
                     transcriptionModel: transcriptionModel,
                     normalizeOriginalTraditionalChinese: activeSpeakingSourceLanguage.shouldNormalizeTraditionalChinese,
                     normalizeTraditionalChinese: activeSpeakingTargetLanguage.shouldNormalizeTraditionalChinese,
+                    normalizeOriginalSimplifiedChinese: activeSpeakingSourceLanguage.shouldNormalizeSimplifiedChinese,
+                    normalizeSimplifiedChinese: activeSpeakingTargetLanguage.shouldNormalizeSimplifiedChinese,
                     silenceGate: makeFastSilenceGate()
                 )
 
@@ -429,6 +441,8 @@ final class MeetingSessionController: ObservableObject {
                     transcriptionModel: transcriptionModel,
                     normalizeOriginalTraditionalChinese: activeListeningSourceLanguage.shouldNormalizeTraditionalChinese,
                     normalizeTraditionalChinese: activeListeningTargetLanguage.shouldNormalizeTraditionalChinese,
+                    normalizeOriginalSimplifiedChinese: activeListeningSourceLanguage.shouldNormalizeSimplifiedChinese,
+                    normalizeSimplifiedChinese: activeListeningTargetLanguage.shouldNormalizeSimplifiedChinese,
                     silenceGate: makeFastSilenceGate()
                 )
                 let local = OpenAIRealtimeTranslationSession(
@@ -438,6 +452,8 @@ final class MeetingSessionController: ObservableObject {
                     transcriptionModel: transcriptionModel,
                     normalizeOriginalTraditionalChinese: activeSpeakingSourceLanguage.shouldNormalizeTraditionalChinese,
                     normalizeTraditionalChinese: activeSpeakingTargetLanguage.shouldNormalizeTraditionalChinese,
+                    normalizeOriginalSimplifiedChinese: activeSpeakingSourceLanguage.shouldNormalizeSimplifiedChinese,
+                    normalizeSimplifiedChinese: activeSpeakingTargetLanguage.shouldNormalizeSimplifiedChinese,
                     silenceGate: makeFastSilenceGate()
                 )
 
@@ -675,6 +691,8 @@ final class MeetingSessionController: ObservableObject {
                 transcriptionModel: activeTranscriptionModel,
                 normalizeOriginalTraditionalChinese: activeListeningSourceLanguage.shouldNormalizeTraditionalChinese,
                 normalizeTraditionalChinese: activeListeningTargetLanguage.shouldNormalizeTraditionalChinese,
+                normalizeOriginalSimplifiedChinese: activeListeningSourceLanguage.shouldNormalizeSimplifiedChinese,
+                normalizeSimplifiedChinese: activeListeningTargetLanguage.shouldNormalizeSimplifiedChinese,
                 silenceGate: makeFastSilenceGate()
             )
             let local = OpenAIRealtimeTranslationSession(
@@ -684,6 +702,8 @@ final class MeetingSessionController: ObservableObject {
                 transcriptionModel: activeTranscriptionModel,
                 normalizeOriginalTraditionalChinese: activeSpeakingSourceLanguage.shouldNormalizeTraditionalChinese,
                 normalizeTraditionalChinese: activeSpeakingTargetLanguage.shouldNormalizeTraditionalChinese,
+                normalizeOriginalSimplifiedChinese: activeSpeakingSourceLanguage.shouldNormalizeSimplifiedChinese,
+                normalizeSimplifiedChinese: activeSpeakingTargetLanguage.shouldNormalizeSimplifiedChinese,
                 silenceGate: makeFastSilenceGate()
             )
             wireFast(remote, speaker: .remote) { readiness.markRemoteReady() }
@@ -703,6 +723,8 @@ final class MeetingSessionController: ObservableObject {
                 transcriptionModel: activeTranscriptionModel,
                 normalizeOriginalTraditionalChinese: activeListeningSourceLanguage.shouldNormalizeTraditionalChinese,
                 normalizeTraditionalChinese: activeListeningTargetLanguage.shouldNormalizeTraditionalChinese,
+                normalizeOriginalSimplifiedChinese: activeListeningSourceLanguage.shouldNormalizeSimplifiedChinese,
+                normalizeSimplifiedChinese: activeListeningTargetLanguage.shouldNormalizeSimplifiedChinese,
                 silenceGate: makeFastSilenceGate()
             )
             let local = OpenAIRealtimeTranslationSession(
@@ -712,6 +734,8 @@ final class MeetingSessionController: ObservableObject {
                 transcriptionModel: activeTranscriptionModel,
                 normalizeOriginalTraditionalChinese: activeSpeakingSourceLanguage.shouldNormalizeTraditionalChinese,
                 normalizeTraditionalChinese: activeSpeakingTargetLanguage.shouldNormalizeTraditionalChinese,
+                normalizeOriginalSimplifiedChinese: activeSpeakingSourceLanguage.shouldNormalizeSimplifiedChinese,
+                normalizeSimplifiedChinese: activeSpeakingTargetLanguage.shouldNormalizeSimplifiedChinese,
                 silenceGate: makeFastSilenceGate()
             )
             wireFast(remote, speaker: .remote) { readiness.markRemoteReady() }
