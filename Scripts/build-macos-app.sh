@@ -21,7 +21,7 @@ if [ -f "$ROOT/Resources/AppIcon.icns" ]; then
     /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string AppIcon" "$APP/Contents/Info.plist" 2>/dev/null || true
 fi
 
-SIGNING_IDENTITY="${NATIVOX_CODESIGN_IDENTITY:-}"
+SIGNING_IDENTITY="${SPEAKACROSS_CODESIGN_IDENTITY:-}"
 if [ -z "$SIGNING_IDENTITY" ]; then
     SIGNING_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | awk '/Apple Development:/{print $2; exit}')"
 fi

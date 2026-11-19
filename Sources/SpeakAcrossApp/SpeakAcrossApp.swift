@@ -444,17 +444,6 @@ private struct MyView: View {
                     .frame(width: 64, alignment: .trailing)
             }
 
-            HStack(alignment: .top, spacing: 12) {
-                Text("Mic debug")
-                    .frame(width: 92, alignment: .leading)
-
-                Text(meeting.microphoneDiagnostic)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
             HStack(spacing: 12) {
                 Text("System audio")
                     .frame(width: 92, alignment: .leading)

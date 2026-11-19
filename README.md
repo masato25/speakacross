@@ -1,6 +1,6 @@
 # SpeakAcross
 
-**SpeakAcross is an open-source, native macOS bilingual meeting subtitle app for real-time English ↔ Traditional Chinese communication.**
+**SpeakAcross is an open-source, native macOS bilingual meeting subtitle app for real-time English ↔ Traditional / Simplified Chinese communication.**
 
 <p align="center">
   <img src="Docs/assets/speakacross-overview.svg" alt="SpeakAcross My View and Share View product preview" width="100%" />
@@ -13,7 +13,7 @@ It captures both sides of a conversation independently:
 - remote meeting/system audio → English transcript → Traditional Chinese translation
 - local microphone → Chinese transcript → English translation
 
-The private **My View** helps you understand the other side. A separate **Share View** is designed to be screen-shared so the other participant can read your English translation.
+The private **My View** helps you understand the other side (with a separate **History** popout for Listening / Speaking transcript comparison). A separate **Share View** is designed to be screen-shared so the other participant can read your continuous translated subtitles without exposing your private view.
 
 > Speak naturally. Read the other side in your language. Share your translation without exposing your private view.
 
@@ -50,8 +50,7 @@ You speak Chinese
  SpeakAcross
       │
       └── Share View
-          English translation
-          Chinese original
+          Continuous English translation
           safe to screen-share
 ```
 
@@ -62,10 +61,10 @@ This is intentionally a **translation tool**, not an interview-answer generator 
 - Native Swift / SwiftUI macOS app
 - macOS system-audio capture with ScreenCaptureKit
 - microphone capture with AVFoundation
-- real-time English → Traditional Chinese translation
-- real-time Chinese → English translation
-- separate private My View and shareable Share View
-- original transcript + translated text
+- real-time English ↔ Traditional Chinese / Simplified Chinese translation
+- configurable Listening and Speaking language directions
+- separate private My View, continuous-translation Share View, and Listening/Speaking History popout
+- original transcript + translated text comparison in My View and History
 - system-audio and microphone activity indicators
 - selectable microphone and AI output devices
 - OpenAI BYOK (Bring Your Own Key)

@@ -16,7 +16,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BINARY" "$APP/Contents/MacOS/speakacross-e2e-agent"
 cp "$PLIST" "$APP/Contents/Info.plist"
 
-SIGNING_IDENTITY="${NATIVOX_CODESIGN_IDENTITY:-${SPEAKACROSS_CODESIGN_IDENTITY:-}}"
+SIGNING_IDENTITY="${SPEAKACROSS_CODESIGN_IDENTITY:-}"
 if [ -z "$SIGNING_IDENTITY" ]; then
     SIGNING_IDENTITY="$(security find-identity -v -p codesigning 2>/dev/null | awk '/Apple Development:/{print $2; exit}')"
 fi

@@ -150,7 +150,6 @@ final class MeetingSessionController: ObservableObject {
     @Published private(set) var audioDeviceError: String?
     @Published private(set) var inputLevel: Double = 0
     @Published private(set) var systemAudioLevel: Double = 0
-    @Published private(set) var microphoneDiagnostic = "Not started"
     @Published private(set) var remoteAudioSentSeconds: Double = 0
     @Published private(set) var localAudioSentSeconds: Double = 0
     @Published private(set) var remoteTurnCount = 0
@@ -491,11 +490,6 @@ final class MeetingSessionController: ObservableObject {
                 onLevel: { [weak self] level in
                     Task { @MainActor in
                         self?.inputLevel = level
-                    }
-                },
-                onDiagnostic: { [weak self] message in
-                    Task { @MainActor in
-                        self?.microphoneDiagnostic = message
                     }
                 },
                 onPCM16: localSink
@@ -1156,27 +1150,6 @@ final class MeetingSessionController: ObservableObject {
         guard canEstimateAccurateCost else { return }
         accurateTranscriptionCostUSD += seconds / 60 * Self.accurateTranscriptionUSDPerMinute
     }
-
-    private static let technicalKeywords = [
-        "RPC",
-        "gateway",
-        "provider",
-        "keeper",
-        "health factor",
-        "Morpho",
-        "Uniswap v3",
-        "rebalancing",
-        "circuit breaker",
-        "smart contract",
-        "DeFi",
-        "逾時",
-        "連續",
-        "備援",
-        "部位",
-        "槓桿",
-        "清算",
-        "借款人"
-    ]
 }
 
 private final class SessionReadyLatch: @unchecked Sendable {
